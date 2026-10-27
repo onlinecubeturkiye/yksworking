@@ -22,6 +22,7 @@ const DEFAULT_STATE = {
   exams: [],       // {id, date, type, name, sections:{key:{d,y}}}
   plan: { week: '', days: [[], [], [], [], [], [], []] }, // {id, subject, note, done}
   mistakes: [],    // {id, date, subject, topic, note, img, solved}
+  calc: { type: null, nets: {}, diploma: '', placed: false }, // puan hesaplama girdileri
 };
 
 let state = load();
@@ -35,6 +36,7 @@ function load() {
       ...structuredClone(DEFAULT_STATE), ...s,
       settings: { ...DEFAULT_STATE.settings, ...(s.settings || {}) },
       plan: s.plan && Array.isArray(s.plan.days) ? s.plan : structuredClone(DEFAULT_STATE.plan),
+      calc: { ...DEFAULT_STATE.calc, ...(s.calc || {}) },
     };
   } catch (e) {
     return structuredClone(DEFAULT_STATE);
@@ -751,6 +753,8 @@ function examDetail(id) {
       return `<tr><td>${s.name}</td><td>${v.d}</td><td>${v.y}</td><td>${s.max - v.d - v.y}</td><td>${fmtNet(net(v.d, v.y))}</td></tr>`;
     }).join('')}
     <tr><th>Toplam</th><th></th><th></th><th></th><th>${fmtNet(examTotalNet(e))}</th></tr></table>
+    ${e.type === 'TYT' ? `<p class="small" style="margin:12px 0 0">🧮 Tahmini TYT ham puanı: <b>${fmtPuan(100 + EXAM_SECTIONS.TYT.reduce((a, s) =>
+      a + Math.max(0, net(e.sections[s.key]?.d, e.sections[s.key]?.y)) * PUAN.TYT.tyt[s.key], 0))}</b></p>` : ''}
     <div class="btn-row" style="margin-top:14px"><button class="btn" data-close-modal>Kapat</button></div>`);
 }
 
@@ -891,6 +895,136 @@ function compressImage(file, maxSize = 900, quality = 0.7) {
   });
 }
 
+
+/* =========================================================
+   PUAN HESAPLAMA (tahmini)
+   ========================================================= */
+// nets: { 'TYT.tr': {d, y}, 'AYT-SAY.mat': {d, y}, ... }
+function calcNet(nets, exam, key) {
+  const v = nets[`${exam}.${key}`] || {};
+  return Math.max(0, net(v.d, v.y));
+}
+function calcScores(type, nets, diploma, placed) {
+  const tytRaw = 100 + Object.entries(PUAN.TYT.tyt).reduce((a, [k, c]) => a + calcNet(nets, 'TYT', k) * c, 0);
+  let aytRaw = null;
+  if (type !== 'TYT') {
+    const p = PUAN[type];
+    aytRaw = 100
+      + Object.entries(PUAN_TYT_IN_AYT).reduce((a, [k, c]) => a + calcNet(nets, 'TYT', k) * c, 0)
+      + Object.entries(p.ayt).reduce((a, [k, c]) => a + calcNet(nets, p.aytType, k) * c, 0);
+  }
+  const dip = Number(diploma);
+  const obp = dip >= 50 && dip <= 100 ? dip * 5 : 0;
+  const obpAdd = obp * (placed ? 0.06 : 0.12);
+  return { tytRaw, aytRaw, obp, obpAdd, tytPlace: tytRaw + obpAdd, aytPlace: aytRaw == null ? null : aytRaw + obpAdd };
+}
+const fmtPuan = n => (Math.round(n * 1000) / 1000).toLocaleString('tr-TR', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+
+function netTable(exam) {
+  const nets = state.calc.nets;
+  return `<div class="table-wrap"><table>
+    <tr><th>${esc(EXAM_LABELS[exam])}</th><th>Doğru</th><th>Yanlış</th><th>Net</th></tr>
+    ${EXAM_SECTIONS[exam].map(s => {
+      const v = nets[`${exam}.${s.key}`] || { d: 0, y: 0 };
+      return `<tr><td>${s.name} <span class="muted small">(${s.max})</span></td>
+        <td><input type="number" min="0" max="${s.max}" data-calc="${exam}.${s.key}.d" value="${v.d || 0}"></td>
+        <td><input type="number" min="0" max="${s.max}" data-calc="${exam}.${s.key}.y" value="${v.y || 0}"></td>
+        <td style="font-weight:700">${fmtNet(calcNet(nets, exam, s.key))}</td></tr>`;
+    }).join('')}</table></div>`;
+}
+
+VIEWS.score = () => {
+  const c = state.calc;
+  c.type ||= state.settings.field || 'SAY';
+  const r = calcScores(c.type, c.nets, c.diploma, c.placed);
+  const p = PUAN[c.type];
+  const low = r.tytRaw < 150;
+  return `
+  ${pageHead('🧮 Puan Hesaplama', 'Netlerini gir, tahmini YKS puanını gör')}
+  <div class="grid grid-2">
+    <div>
+      <div class="card">
+        <div class="card-head"><h3>Puan türü</h3>
+          <button class="btn sm secondary" data-calc-fill>⚡ Son denemelerimden doldur</button></div>
+        <div class="seg">${['SAY', 'EA', 'SOZ', 'DIL'].map(t =>
+          `<button data-calc-type="${t}" class="${c.type === t ? 'active' : ''}">${PUAN[t].name}</button>`).join('')}</div>
+      </div>
+      <div class="card">${netTable('TYT')}</div>
+      <div class="card">${netTable(p.aytType)}</div>
+      <div class="card">
+        <h3>🎓 Okul puanı (OBP)</h3>
+        <div class="form-row">
+          <div><label>Diploma notu (50–100)</label>
+            <input type="number" min="50" max="100" step="0.01" data-calc-diploma value="${esc(c.diploma)}" placeholder="örn. 85,5"></div>
+        </div>
+        <label style="display:flex;gap:8px;align-items:center;cursor:pointer;color:var(--text);font-weight:500">
+          <input type="checkbox" data-calc-placed ${c.placed ? 'checked' : ''} style="width:auto;accent-color:var(--primary)">
+          Geçen yıl bir programa yerleştim (OBP katkısı yarıya düşer)</label>
+      </div>
+    </div>
+
+    <div class="score-result">
+      <div class="hero" style="margin-bottom:16px">
+        <div class="hero-top"><span>Tahmini yerleştirme puanı</span><span>${esc(p.name)}</span></div>
+        <div style="font-size:2.6rem;font-weight:800;margin:8px 0 2px">${fmtPuan(r.aytPlace)}</div>
+        <div style="opacity:.9">Ham puan ${fmtPuan(r.aytRaw)}${r.obpAdd ? ` + OBP katkısı ${fmtPuan(r.obpAdd)}` : ''}</div>
+      </div>
+      <div class="grid" style="grid-template-columns:1fr 1fr">
+        <div class="card stat center"><div class="lbl">TYT ham puan</div><div class="val">${fmtPuan(r.tytRaw)}</div></div>
+        <div class="card stat center"><div class="lbl">TYT yerleştirme</div><div class="val">${fmtPuan(r.tytPlace)}</div></div>
+        <div class="card stat center"><div class="lbl">${esc(p.name)} ham puan</div><div class="val">${fmtPuan(r.aytRaw)}</div></div>
+        <div class="card stat center"><div class="lbl">OBP</div><div class="val">${r.obp ? fmtPuan(r.obp) : '–'}</div></div>
+      </div>
+      ${low ? `<div class="card" style="border-color:var(--warn);background:var(--warn-soft);margin-top:16px">
+        ⚠️ <b>TYT puanın 150'nin altında.</b> Lisans programları ve ${esc(p.name)} puanı için TYT'den en az 150 almak gerekir.</div>` : ''}
+      <div class="card" style="margin-top:16px">
+        <h3>ℹ️ Nasıl hesaplanıyor?</h3>
+        <p class="small muted" style="margin:0">Net = Doğru − Yanlış ÷ 4. Ham puan = 100 + her testin neti × katsayısı.
+        TYT, ${esc(p.name)} puanına %40, ${p.aytType === 'YDT' ? 'YDT' : 'AYT'} %60 ağırlıkla girer.
+        Yerleştirme puanına OBP × 0,12 eklenir (geçen yıl yerleştiysen × 0,06).<br><br>
+        <b>Not:</b> ÖSYM katsayıları her yıl adayların ortalamasına göre değişir ve önceden açıklanmaz.
+        Buradaki katsayılar yaklaşıktır; gerçek puanın birkaç puan farklı çıkabilir.</p>
+      </div>
+    </div>
+  </div>`;
+};
+VIEWS.score.after = () => {
+  // Yazarken tüm sayfayı yeniden çizmek odağı kaçırır; sadece değişince (blur/enter) güncelle
+  $$('[data-calc]').forEach(inp => inp.addEventListener('change', () => {
+    const [exam, key, f] = inp.dataset.calc.split('.');
+    const max = Number(inp.max);
+    const k = `${exam}.${key}`;
+    const v = (state.calc.nets[k] ||= { d: 0, y: 0 });
+    v[f] = Math.min(max, Math.max(0, parseInt(inp.value, 10) || 0));
+    if (v.d + v.y > max) { v[f] = max - (f === 'd' ? v.y : v.d); toast(`Doğru + yanlış ${max}'i geçemez`); }
+    save(); renderKeepScroll();
+  }));
+  $('[data-calc-diploma]').addEventListener('change', e => { state.calc.diploma = e.target.value; save(); renderKeepScroll(); });
+  $('[data-calc-placed]').addEventListener('change', e => { state.calc.placed = e.target.checked; save(); renderKeepScroll(); });
+};
+function renderKeepScroll() {
+  const y = window.scrollY;
+  render();
+  window.scrollTo(0, y);
+}
+function fillCalcFromExams() {
+  const c = state.calc;
+  const types = ['TYT', PUAN[c.type].aytType];
+  let filled = 0;
+  types.forEach(t => {
+    const last = state.exams.filter(e => e.type === t).sort((a, b) => b.date.localeCompare(a.date))[0];
+    if (!last) return;
+    filled++;
+    EXAM_SECTIONS[t].forEach(s => {
+      const v = last.sections[s.key] || { d: 0, y: 0 };
+      c.nets[`${t}.${s.key}`] = { d: v.d, y: v.y };
+    });
+  });
+  save();
+  toast(filled ? '✅ Son deneme netlerin dolduruldu' : 'Bu puan türü için kayıtlı deneme yok');
+  renderKeepScroll();
+}
+
 /* =========================================================
    AYARLAR
    ========================================================= */
@@ -987,7 +1121,7 @@ document.addEventListener('click', e => {
     return;
   }
   if (d.more !== undefined) {
-    const items = [['questions', '✏️', 'Sorular'], ['plan', '📅', 'Program'], ['mistakes', '❌', 'Yanlış Defteri'], ['settings', '⚙️', 'Ayarlar']];
+    const items = [['questions', '✏️', 'Sorular'], ['plan', '📅', 'Program'], ['mistakes', '❌', 'Yanlış Defteri'], ['score', '🧮', 'Puan Hesapla'], ['settings', '⚙️', 'Ayarlar']];
     openModal(`<h3>Diğer bölümler</h3><div class="more-grid">${items.map(([v, i, l]) =>
       `<a href="#${v}" data-close-link><span class="ico">${i}</span>${l}</a>`).join('')}</div>`);
     return;
@@ -1045,6 +1179,9 @@ document.addEventListener('click', e => {
     state.questions = state.questions.filter(q => q.id !== d.delQuestion);
     save(); return render();
   }
+
+  if (d.calcType) { state.calc.type = d.calcType; save(); return renderKeepScroll(); }
+  if (d.calcFill !== undefined) return fillCalcFromExams();
 
   if (d.examChart) { examChartType = d.examChart; return render(); }
   if (d.examDetail) return examDetail(d.examDetail);

@@ -418,3 +418,6 @@ th { color: var(--muted); font-weight: 700; font-size: .74rem; text-transform: u
 }
 .field-pick button span { font-size: 1.6rem; }
 .field-pick button:hover { border-color: var(--primary); background: var(--primary-soft); }
+
+/* Puan hesaplama: telefonda sonuç üstte */
+@media (max-width: 720px) { .score-result { order: -1; } }
