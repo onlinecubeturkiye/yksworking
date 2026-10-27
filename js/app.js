@@ -112,6 +112,31 @@ function subjectLabel(id) {
   const s = subjectById(id);
   return s ? `${s.exam} ${s.name}` : 'Diğer';
 }
+// Her derse sabit bir renk
+const SUBJECT_COLORS = {
+  tr: '#ef4444', edb: '#e11d48', mat: '#5b4cf0', geo: '#0ea5e9', fiz: '#f59e0b', kim: '#10b981', bio: '#22c55e',
+  tar: '#b45309', tar1: '#b45309', tar2: '#92400e', cog: '#0d9488', cog1: '#0d9488', cog2: '#0f766e',
+  fel: '#a855f7', din: '#64748b', ydt: '#ec4899',
+};
+function subjectColor(id) {
+  if (!id || id === 'other') return '#8b8fa8';
+  return SUBJECT_COLORS[id.replace(/^(tyt|ayt)-/, '')] || '#5b4cf0';
+}
+const subjectTag = id => `<span class="tag" style="--c:${subjectColor(id)}">${esc(subjectLabel(id))}</span>`;
+const stepper = (name, cls = '', max = '') => `<div class="stepper ${cls}"><button type="button" data-step="-1" aria-label="Azalt">−</button>
+  <input type="number" min="0" ${max ? `max="${max}"` : ''} name="${name}" value="0" inputmode="numeric">
+  <button type="button" data-step="1" aria-label="Arttır">+</button></div>`;
+const emptyBox = (ico, msg) => `<div class="empty"><span class="e-ico">${ico}</span>${msg}</div>`;
+const pageHead = (title, sub, right = '') =>
+  `<div class="page-head"><div><h1>${title}</h1>${sub ? `<p>${sub}</p>` : ''}</div>${right}</div>`;
+function ringSvg(pct, size = 110, stroke = 10, grad = 'ringGrad') {
+  const r = (size - stroke) / 2, len = 2 * Math.PI * r;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="var(--bg-2)" stroke-width="${stroke}"></circle>
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="url(#${grad})" stroke-width="${stroke}"
+      stroke-linecap="round" stroke-dasharray="${len}" stroke-dashoffset="${len * (1 - Math.min(pct, 100) / 100)}"></circle></svg>`;
+}
+
 function activeSubjects() {
   const f = FIELDS[state.settings.field] || FIELDS.SAY;
   return SUBJECTS.filter(s => s.exam === 'TYT' || f.ayt.includes(s.id));
@@ -203,20 +228,23 @@ function barChart(data, { height = 200, unit = '' } = {}) {
   const W = 400, H = height, pad = { t: 20, r: 6, b: 24, l: 6 };
   const max = Math.max(1, ...data.map(d => d.value));
   const bw = (W - pad.l - pad.r) / data.length;
+  const full = H - pad.t - pad.b;
   const bars = data.map((d, i) => {
-    const h = ((H - pad.t - pad.b) * d.value) / max;
-    const x = pad.l + i * bw + bw * 0.18;
+    const h = (full * d.value) / max;
+    const x = pad.l + i * bw + bw * 0.2;
+    const w = bw * 0.6;
     const y = H - pad.b - h;
-    return `<rect class="barr" x="${x}" y="${y}" width="${bw * 0.64}" height="${Math.max(h, 0)}" rx="4"></rect>
-      ${d.value ? `<text class="val" x="${x + bw * 0.32}" y="${y - 4}" text-anchor="middle">${esc(d.display ?? d.value)}${unit}</text>` : ''}
-      <text x="${x + bw * 0.32}" y="${H - 8}" text-anchor="middle">${esc(d.label)}</text>`;
+    const isLast = i === data.length - 1;
+    return `<rect class="bar-bg" x="${x}" y="${pad.t}" width="${w}" height="${full}" rx="${w / 2.6}"></rect>
+      ${h > 0 ? `<rect class="barr ${isLast ? 'today' : ''}" x="${x}" y="${y}" width="${w}" height="${Math.max(h, w / 1.3)}" rx="${w / 2.6}"></rect>` : ''}
+      ${d.value ? `<text class="val" x="${x + w / 2}" y="${Math.min(y, H - pad.b - w / 1.3) - 5}" text-anchor="middle">${esc(d.display ?? d.value)}${unit}</text>` : ''}
+      <text x="${x + w / 2}" y="${H - 6}" text-anchor="middle" ${isLast ? 'style="font-weight:700;fill:var(--text)"' : ''}>${esc(d.label)}</text>`;
   }).join('');
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img">
-    <line class="grid-line" x1="${pad.l}" x2="${W - pad.r}" y1="${H - pad.b}" y2="${H - pad.b}"></line>${bars}</svg>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img">${bars}</svg>`;
 }
 
 function lineChart(data, { height = 240, maxY } = {}) {
-  if (!data.length) return '<div class="empty">Henüz veri yok.</div>';
+  if (!data.length) return emptyBox('📈', 'Deneme ekledikçe net grafiğin burada oluşacak.');
   const W = 400, H = height, pad = { t: 22, r: 18, b: 26, l: 32 };
   const vals = data.map(d => d.value);
   const top = maxY ?? Math.max(...vals);
@@ -229,10 +257,11 @@ function lineChart(data, { height = 240, maxY } = {}) {
     <text x="${pad.l - 6}" y="${y(t) + 3}" text-anchor="end">${Math.round(t)}</text>`).join('');
   const path = data.map((d, i) => `${i ? 'L' : 'M'}${x(i)},${y(d.value)}`).join(' ');
   const every = Math.ceil(data.length / 5);
-  const pts = data.map((d, i) => `<circle class="dot" cx="${x(i)}" cy="${y(d.value)}" r="4"><title>${esc(d.label)}: ${fmtNet(d.value)}</title></circle>
+  const area = `${path} L${x(data.length - 1)},${y(lo)} L${x(0)},${y(lo)} Z`;
+  const pts = data.map((d, i) => `<circle class="dot" cx="${x(i)}" cy="${y(d.value)}" r="4.5"><title>${esc(d.label)}: ${fmtNet(d.value)}</title></circle>
     <text class="val" x="${x(i)}" y="${y(d.value) - 8}" text-anchor="middle">${fmtNet(d.value)}</text>
     ${i % every === 0 || i === data.length - 1 ? `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${esc(d.label)}</text>` : ''}`).join('');
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img">${grid}<path class="line" d="${path}"></path>${pts}</svg>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img">${grid}${data.length > 1 ? `<path class="area" d="${area}"></path>` : ''}<path class="line" d="${path}"></path>${pts}</svg>`;
 }
 
 function last7(fn) {
@@ -253,11 +282,14 @@ let currentView = 'home';
 function route() {
   const v = (location.hash || '#home').slice(1);
   currentView = VIEWS[v] ? v : 'home';
-  $$('#tabs a').forEach(a => a.classList.toggle('active', a.dataset.view === currentView));
-  render();
+  $$('[data-view]').forEach(a => a.classList.toggle('active', a.dataset.view === currentView));
+  $$('[data-view-group]').forEach(b => b.classList.toggle('active', b.dataset.viewGroup.split(' ').includes(currentView)));
+  if (!$('#modal').hidden && state.settings.field) closeModal();
+  render(true);
+  window.scrollTo(0, 0);
 }
-function render() {
-  $('#app').innerHTML = VIEWS[currentView]();
+function render(animate = false) {
+  $('#app').innerHTML = `<div class="${animate ? 'view' : ''}">${VIEWS[currentView]()}</div>`;
   if (VIEWS[currentView].after) VIEWS[currentView].after();
   updateTopbar();
 }
@@ -265,7 +297,17 @@ window.addEventListener('hashchange', route);
 
 function updateTopbar() {
   const c = countdownParts();
-  $('#topCountdown').textContent = c ? (c.past ? 'Sınav tarihi geçti' : `YKS'ye ${c.days} gün`) : '';
+  $('#topCountdown').textContent = c ? (c.past ? 'Sınav geçti' : `⏳ ${c.days} gün`) : '';
+  $('#sideCount').innerHTML = c ? `<span>YKS'ye kalan</span><b>${c.days} gün</b><span>${c.hours} saat ${c.mins} dakika</span>` : '';
+  $('#sideField').textContent = FIELDS[state.settings.field] ? `${FIELDS[state.settings.field].name} alanı` : '';
+}
+
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 5) return 'İyi geceler 🌙';
+  if (h < 12) return 'Günaydın ☀️';
+  if (h < 18) return 'İyi çalışmalar 💪';
+  return 'İyi akşamlar 🌆';
 }
 
 /* =========================================================
@@ -286,63 +328,76 @@ VIEWS.home = () => {
   const pct = (a, b) => Math.min(100, Math.round((a / Math.max(b, 1)) * 100));
   const aytName = state.settings.field === 'DIL' ? 'YDT' : 'AYT';
 
+  const st = streak();
+  const openMistakes = state.mistakes.filter(m => !m.solved).length;
+  const todayLong = new Date().toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' });
+
   return `
-  <div class="card" style="text-align:center">
-    <div class="muted small">YKS'ye kalan süre · ${esc(FIELDS[state.settings.field]?.name || '')} alanı</div>
-    ${c ? `<div class="big-count" id="bigCountdown">${c.days} gün ${c.hours} sa ${c.mins} dk</div>` : ''}
-    <div class="quote">“${esc(quote)}”</div>
-  </div>
+  <section class="hero">
+    <div class="hero-top"><span>📅 ${esc(todayLong)}</span><span>${esc(FIELDS[state.settings.field]?.name || '')} alanı</span></div>
+    <div class="hero-greet">${greeting()}</div>
+    ${c ? (c.past ? '<div class="count-blocks"><div><b>🎉</b><span>Sınav tarihi geçti</span></div></div>' : `
+    <div class="count-blocks" id="bigCountdown">
+      <div><b>${c.days}</b><span>gün</span></div>
+      <div><b>${c.hours}</b><span>saat</span></div>
+      <div><b>${c.mins}</b><span>dakika</span></div>
+    </div>`) : ''}
+    <div class="hero-quote">“${esc(quote)}”</div>
+  </section>
 
   <div class="grid grid-4">
-    <div class="card stat"><div class="val">${fmtMin(mins)}</div><div class="lbl">Bugün çalışma</div></div>
-    <div class="card stat"><div class="val">${qs}</div><div class="lbl">Bugün soru</div></div>
-    <div class="card stat"><div class="val">🔥 ${streak()}</div><div class="lbl">Gün seri</div></div>
-    <div class="card stat"><div class="val">${lastExam ? fmtNet(examTotalNet(lastExam)) : '–'}</div>
-      <div class="lbl">Son deneme neti${lastExam ? ` (${esc(EXAM_LABELS[lastExam.type])})` : ''}</div></div>
+    <div class="card stat"><div class="ic violet">⏱️</div><div><div class="val">${fmtMin(mins)}</div><div class="lbl">Bugün çalışma</div></div></div>
+    <div class="card stat"><div class="ic green">✏️</div><div><div class="val">${qs}</div><div class="lbl">Bugün soru</div></div></div>
+    <div class="card stat"><div class="ic orange">🔥</div><div><div class="val">${st} gün</div><div class="lbl">Çalışma serisi</div></div></div>
+    <div class="card stat"><div class="ic blue">📝</div><div><div class="val">${lastExam ? fmtNet(examTotalNet(lastExam)) : '–'}</div>
+      <div class="lbl">Son net${lastExam ? ` · ${esc(EXAM_LABELS[lastExam.type])}` : ''}</div></div></div>
   </div>
 
   <div class="grid grid-2">
     <div class="card">
-      <h3>🎯 Günlük Hedefler</h3>
-      <div class="goal-row"><span>Çalışma süresi</span><span>${fmtMin(mins)} / ${fmtMin(goalMinutes)}</span></div>
-      <div class="bar"><span style="width:${pct(mins, goalMinutes)}%;background:var(--primary)"></span></div>
-      <div class="goal-row"><span>Soru sayısı</span><span>${qs} / ${goalQuestions}</span></div>
-      <div class="bar"><span style="width:${pct(qs, goalQuestions)}%;background:var(--ok)"></span></div>
-      <div class="btn-row" style="margin-top:14px">
-        <a class="btn sm" href="#timer">⏱️ Çalışmaya başla</a>
-        <a class="btn sm secondary" href="#questions">✏️ Soru ekle</a>
+      <div class="card-head"><h3>🎯 Bugünkü Hedefler</h3><a class="btn sm" href="#timer">▶ Çalışmaya başla</a></div>
+      <div class="rings">
+        <div class="ring-sm"><div class="wrap">${ringSvg(pct(mins, goalMinutes))}
+          <div class="in"><div><b>%${pct(mins, goalMinutes)}</b><span>${fmtMin(mins)}</span></div></div></div>
+          <div class="t">Çalışma</div><div class="muted small">Hedef ${fmtMin(goalMinutes)}</div></div>
+        <div class="ring-sm"><div class="wrap">${ringSvg(pct(qs, goalQuestions), 110, 10, 'ringGradOk')}
+          <div class="in"><div><b>%${pct(qs, goalQuestions)}</b><span>${qs} soru</span></div></div></div>
+          <div class="t">Soru</div><div class="muted small">Hedef ${goalQuestions}</div></div>
       </div>
     </div>
     <div class="card">
-      <h3>📖 Konu İlerlemesi</h3>
-      <div class="goal-row"><span>TYT</span><span>%${tyt.pct}</span></div>${progressBar(tyt)}
-      <div class="goal-row"><span>${aytName}</span><span>%${ayt.pct}</span></div>${progressBar(ayt)}
-      <div class="legend" style="margin-top:12px">
+      <div class="card-head"><h3>📖 Konu İlerlemesi</h3><a class="btn sm secondary" href="#topics">Tümü →</a></div>
+      <div class="goal-row"><span>TYT</span><span>${tyt.counts[2] + tyt.counts[3]}/${tyt.total} konu · %${tyt.pct}</span></div>${progressBar(tyt)}
+      <div class="goal-row"><span>${aytName}</span><span>${ayt.counts[2] + ayt.counts[3]}/${ayt.total} konu · %${ayt.pct}</span></div>${progressBar(ayt)}
+      <div class="legend" style="margin-top:14px">
         <span><i style="background:var(--s3)"></i>Tekrar edildi</span>
         <span><i style="background:var(--s2)"></i>Bitti</span>
         <span><i style="background:var(--s1)"></i>Çalışılıyor</span>
       </div>
+      ${openMistakes ? `<a href="#mistakes" class="list-item" style="text-decoration:none;color:inherit;margin-top:10px;border-top:1px solid var(--border)">
+        <div class="ic red" style="width:34px;height:34px;border-radius:10px;display:grid;place-items:center">❌</div>
+        <div class="grow"><b>${openMistakes} yanlış soru</b><div class="sub">tekrar edilmeyi bekliyor</div></div><span class="muted">→</span></a>` : ''}
     </div>
   </div>
 
   <div class="grid grid-2">
     <div class="card">
-      <h3>⏱️ Son 7 Gün Çalışma</h3>
+      <div class="card-head"><h3>⏱️ Son 7 Gün Çalışma</h3><span class="muted small">Toplam ${fmtMin(last7(minutesOn).reduce((a, d) => a + d.value, 0))}</span></div>
       ${barChart(last7(minutesOn).map(d => ({ ...d, display: d.value >= 60 ? (d.value / 60).toFixed(1) + 'sa' : d.value + 'dk' })))}
     </div>
     <div class="card">
-      <h3>✏️ Son 7 Gün Soru</h3>
+      <div class="card-head"><h3>✏️ Son 7 Gün Soru</h3><span class="muted small">Toplam ${last7(questionsOn).reduce((a, d) => a + d.value, 0)}</span></div>
       ${barChart(last7(questionsOn))}
     </div>
   </div>
 
   <div class="card">
-    <h3>📅 Bugünün Programı (${DAY_LONG[weekdayIdx()]})</h3>
+    <div class="card-head"><h3>📅 Bugünün Programı · ${DAY_LONG[weekdayIdx()]}</h3><a class="btn sm secondary" href="#plan">Düzenle</a></div>
     ${todayPlan.length ? todayPlan.map(p => `
-      <label class="plan-item ${p.done ? 'done' : ''}">
+      <label class="plan-item ${p.done ? 'done' : ''}" style="--c:${subjectColor(p.subject)}">
         <input type="checkbox" data-plan-toggle="${weekdayIdx()}|${p.id}" ${p.done ? 'checked' : ''}>
         <span class="txt"><b>${esc(subjectLabel(p.subject))}</b>${p.note ? ' – ' + esc(p.note) : ''}</span>
-      </label>`).join('') : '<div class="empty">Bugün için plan yok. <a href="#plan">Program ekle</a></div>'}
+      </label>`).join('') : emptyBox('🗓️', 'Bugün için plan yok. <a href="#plan">Program ekle</a>')}
   </div>`;
 };
 
@@ -356,21 +411,20 @@ VIEWS.topics = () => {
   const shown = subs.filter(s => topicFilter === 'ALL' || (topicFilter === 'TYT' ? s.exam === 'TYT' : s.exam !== 'TYT'));
   const g = groupProgress(shown);
   return `
-  <div class="card">
-    <h2>📖 Konu Takibi</h2>
-    <div class="seg" style="margin-bottom:12px">
-      ${[['TYT', 'TYT'], ['AYT', aytName], ['ALL', 'Tümü']].map(([k, l]) =>
-        `<button data-topic-filter="${k}" class="${topicFilter === k ? 'active' : ''}">${l}</button>`).join('')}
-    </div>
-    <div class="goal-row"><span>Genel ilerleme (${g.counts[2] + g.counts[3]}/${g.total} konu)</span><span>%${g.pct}</span></div>
-    ${progressBar(g)}
-    <p class="muted small" style="margin:10px 0 0">Konunun durumunu değiştirmek için düğmeye dokun:
-      Başlanmadı → Çalışılıyor → Bitti → Tekrar Edildi</p>
+  ${pageHead('📖 Konu Takibi', 'Durumu değiştirmek için düğmeye dokun: Başlanmadı → Çalışılıyor → Bitti → Tekrar Edildi',
+    `<div class="seg">${[['TYT', 'TYT'], ['AYT', aytName], ['ALL', 'Tümü']].map(([k, l]) =>
+      `<button data-topic-filter="${k}" class="${topicFilter === k ? 'active' : ''}">${l}</button>`).join('')}</div>`)}
+  <div class="grid grid-4" style="margin-bottom:16px">
+    <div class="card stat center"><div class="val">%${g.pct}</div><div class="lbl">Tamamlanan</div></div>
+    <div class="card stat center"><div class="val" style="color:var(--ok)">${g.counts[3]}</div><div class="lbl">Tekrar edildi</div></div>
+    <div class="card stat center"><div class="val" style="color:var(--info)">${g.counts[2]}</div><div class="lbl">Bitti</div></div>
+    <div class="card stat center"><div class="val" style="color:var(--warn)">${g.counts[1]}</div><div class="lbl">Çalışılıyor</div></div>
   </div>
   ${shown.map(s => {
     const p = subjectProgress(s);
-    return `<details class="subject card" style="padding:0" data-subject="${s.id}" ${openSubjects.has(s.id) ? 'open' : ''}>
-      <summary><span class="name">${esc(s.exam + ' ' + s.name)}</span>${progressBar(p)}<span class="pct">%${p.pct}</span></summary>
+    return `<details class="subject card" style="--c:${subjectColor(s.id)}" data-subject="${s.id}" ${openSubjects.has(s.id) ? 'open' : ''}>
+      <summary><span class="name">${esc(s.name)}<small>${s.exam} · ${p.counts[2] + p.counts[3]}/${p.total} konu</small></span>
+        ${progressBar(p)}<span class="pct">%${p.pct}</span><span class="chev">›</span></summary>
       <div class="topic-list">
         ${s.topics.map(t => {
           const st = topicStatus(s.id, t);
@@ -461,47 +515,51 @@ setInterval(() => {
   }
   if (currentView === 'home' && $('#bigCountdown')) {
     const c = countdownParts();
-    if (c) $('#bigCountdown').textContent = `${c.days} gün ${c.hours} sa ${c.mins} dk`;
+    if (c && !c.past) $$('#bigCountdown b').forEach((b, i) => (b.textContent = [c.days, c.hours, c.mins][i]));
   }
 }, 500);
 
 VIEWS.timer = () => {
   if (!timer.subject) timer.subject = activeSubjects()[0].id;
   const left = timeLeft();
-  const R = 100, len = 2 * Math.PI * R;
+  const R = 112, len = 2 * Math.PI * R;
   const today = dateStr();
   const todays = state.sessions.filter(s => s.date === today);
   const bySubject = {};
   state.sessions.filter(s => s.date >= addDays(today, -6)).forEach(s => (bySubject[s.subject] = (bySubject[s.subject] || 0) + s.minutes));
   const sorted = Object.entries(bySubject).sort((a, b) => b[1] - a[1]);
 
+  const inCycle = timer.cycles % 4 === 0 && timer.cycles > 0 && timer.mode === 'break' ? 4 : timer.cycles % 4;
+
   return `
+  ${pageHead('⏱️ Pomodoro Sayacı', `${state.settings.pomoWork} dk çalışma · ${state.settings.pomoBreak} dk mola · her 4 turda ${state.settings.pomoLongBreak} dk uzun mola`)}
   <div class="grid grid-2">
     <div class="card">
-      <h2>⏱️ Pomodoro Sayacı</h2>
       <label>Çalışılan ders</label>
       <select id="timerSubject" ${timer.running && timer.mode === 'work' ? 'disabled' : ''}>${subjectOptions(timer.subject)}</select>
       <div class="timer-face">
         <div class="ring">
-          <svg width="220" height="220" viewBox="0 0 220 220">
-            <circle cx="110" cy="110" r="${R}" fill="none" stroke="var(--border)" stroke-width="10"></circle>
-            <circle id="timerRing" cx="110" cy="110" r="${R}" fill="none" stroke="${timer.mode === 'work' ? 'var(--primary)' : 'var(--ok)'}"
-              stroke-width="10" stroke-linecap="round" stroke-dasharray="${len}" data-len="${len}"
+          <svg width="250" height="250" viewBox="0 0 250 250">
+            <circle cx="125" cy="125" r="${R}" fill="none" stroke="var(--bg-2)" stroke-width="12"></circle>
+            <circle id="timerRing" cx="125" cy="125" r="${R}" fill="none" stroke="url(#${timer.mode === 'work' ? 'ringGrad' : 'ringGradOk'})"
+              stroke-width="12" stroke-linecap="round" stroke-dasharray="${len}" data-len="${len}"
               style="stroke-dashoffset:${len * (1 - left / modeDuration())};transition:stroke-dashoffset .5s linear"></circle>
           </svg>
           <div class="inner">
-            <div class="timer-mode ${timer.mode === 'break' ? 'break' : ''}">${timer.mode === 'work' ? '📘 Çalışma' : '☕ Mola'}</div>
+            <div class="timer-mode ${timer.mode === 'break' ? 'break' : ''}">${timer.mode === 'work' ? '📘 Odaklan' : '☕ Mola'}</div>
             <div class="timer-time" id="timerTime">${fmtClock(left)}</div>
-            <div class="muted small">Tamamlanan: ${timer.cycles} pomodoro</div>
+            <div class="cycle-dots" title="Tamamlanan turlar">${[0, 1, 2, 3].map(i => `<i class="${i < inCycle ? 'on' : ''}"></i>`).join('')}</div>
           </div>
         </div>
       </div>
       <div class="btn-row" style="justify-content:center">
-        <button class="btn" data-timer="${timer.running ? 'pause' : 'start'}">${timer.running ? '⏸ Duraklat' : '▶ Başlat'}</button>
-        <button class="btn secondary" data-timer="finish">⏹ Bitir & Kaydet</button>
-        <button class="btn ghost" data-timer="skip">⏭ Atla</button>
+        <button class="btn lg" data-timer="${timer.running ? 'pause' : 'start'}">${timer.running ? '⏸ Duraklat' : '▶ Başlat'}</button>
       </div>
-      <p class="muted small" style="text-align:center">${state.settings.pomoWork} dk çalışma · ${state.settings.pomoBreak} dk mola · her 4 pomodoroda ${state.settings.pomoLongBreak} dk uzun mola</p>
+      <div class="btn-row" style="justify-content:center;margin-top:10px">
+        <button class="btn sm secondary" data-timer="finish">⏹ Bitir & Kaydet</button>
+        <button class="btn sm ghost" data-timer="skip">⏭ ${timer.mode === 'work' ? 'Molaya geç' : 'Molayı atla'}</button>
+      </div>
+      <p class="muted small" style="text-align:center;margin-bottom:0">Bu oturumda ${timer.cycles} pomodoro tamamladın</p>
     </div>
 
     <div>
@@ -520,15 +578,17 @@ VIEWS.timer = () => {
       </div>
       <div class="card">
         <h3>Bugünkü Oturumlar · ${fmtMin(minutesOn(today))}</h3>
-        ${todays.length ? `<table>${todays.slice().reverse().map(s => `<tr><td>${esc(subjectLabel(s.subject))}</td><td>${fmtMin(s.minutes)}</td>
-          <td style="text-align:right"><button class="btn ghost" data-del-session="${s.id}">🗑</button></td></tr>`).join('')}</table>`
-          : '<div class="empty">Henüz oturum yok.</div>'}
+        ${todays.length ? todays.slice().reverse().map(s => `<div class="list-item">
+          <span class="dot" style="--c:${subjectColor(s.subject)}"></span>
+          <div class="grow"><b>${esc(subjectLabel(s.subject))}</b></div><span class="pill ok">${fmtMin(s.minutes)}</span>
+          <button class="btn ghost" data-del-session="${s.id}" title="Sil">🗑</button></div>`).join('')
+          : emptyBox('🌱', 'Bugün henüz oturum yok. Sayacı başlat!')}
       </div>
       <div class="card">
         <h3>Son 7 Gün – Ders Dağılımı</h3>
         ${sorted.length ? sorted.map(([sid, m]) => `<div class="goal-row"><span>${esc(subjectLabel(sid))}</span><span>${fmtMin(m)}</span></div>
-          <div class="bar"><span style="width:${(m / sorted[0][1]) * 100}%;background:var(--primary)"></span></div>`).join('')
-          : '<div class="empty">Veri yok.</div>'}
+          <div class="bar"><span style="width:${(m / sorted[0][1]) * 100}%;background:${subjectColor(sid)}"></span></div>`).join('')
+          : emptyBox('📊', 'Veri yok.')}
       </div>
     </div>
   </div>`;
@@ -550,46 +610,48 @@ VIEWS.questions = () => {
   const total = state.questions.reduce((a, q) => a + q.d + q.y + q.b, 0);
 
   return `
+  ${pageHead('✏️ Soru Takibi', `Toplam ${total.toLocaleString('tr-TR')} soru çözdün`)}
   <div class="card">
-    <h2>✏️ Soru Takibi</h2>
+    <h3>➕ Soru Ekle</h3>
     <form id="questionForm">
       <div class="form-row">
         <div style="flex:2 1 200px"><label>Ders</label><select name="subject">${subjectOptions(VIEWS.questions.last)}</select></div>
         <div><label>Tarih</label><input name="date" type="date" value="${today}" required></div>
       </div>
       <div class="form-row">
-        <div><label>Doğru</label><input name="d" type="number" min="0" value="0"></div>
-        <div><label>Yanlış</label><input name="y" type="number" min="0" value="0"></div>
-        <div><label>Boş</label><input name="b" type="number" min="0" value="0"></div>
-        <div style="flex:0"><button class="btn">Kaydet</button></div>
+        <div><label style="color:var(--ok)">✓ Doğru</label>${stepper('d', 'd')}</div>
+        <div><label style="color:var(--bad)">✗ Yanlış</label>${stepper('y', 'y')}</div>
+        <div><label>○ Boş</label>${stepper('b')}</div>
+        <div style="flex:0 0 auto"><button class="btn" style="height:42px">Kaydet</button></div>
       </div>
     </form>
   </div>
 
   <div class="grid grid-2">
-    <div class="card"><h3>Son 7 Gün</h3>${barChart(last7(questionsOn))}</div>
+    <div class="card"><h3>📊 Son 7 Gün</h3>${barChart(last7(questionsOn))}</div>
     <div class="card">
-      <h3>Toplam: ${total.toLocaleString('tr-TR')} soru</h3>
+      <h3>📚 Ders Bazında</h3>
       <div class="table-wrap"><table>
-        <tr><th>Ders</th><th>Bu hafta</th><th>Toplam</th><th>Başarı</th></tr>
+        <tr><th>Ders</th><th>Hafta</th><th>Toplam</th><th>Başarı</th></tr>
         ${Object.entries(stats).sort((a, b) => (b[1].d + b[1].y + b[1].b) - (a[1].d + a[1].y + a[1].b)).map(([sid, s]) => {
           const t = s.d + s.y + s.b;
           const acc = t ? Math.round((s.d / t) * 100) : 0;
-          return `<tr><td>${esc(subjectLabel(sid))}</td><td>${s.week}</td><td>${t}</td>
-            <td style="color:${acc >= 75 ? 'var(--ok)' : acc >= 50 ? 'var(--warn)' : 'var(--bad)'}">%${acc}</td></tr>`;
-        }).join('') || '<tr><td colspan="4" class="empty">Veri yok.</td></tr>'}
+          return `<tr><td>${subjectTag(sid)}</td><td>${s.week}</td><td>${t}</td>
+            <td><span class="pill ${acc >= 75 ? 'ok' : acc >= 50 ? 'warn' : 'bad'}">%${acc}</span></td></tr>`;
+        }).join('') || `<tr><td colspan="4">${emptyBox('📚', 'Veri yok.')}</td></tr>`}
       </table></div>
     </div>
   </div>
 
   <div class="card">
-    <h3>Son Kayıtlar</h3>
-    ${recent.length ? `<div class="table-wrap"><table>
-      <tr><th>Tarih</th><th>Ders</th><th>D</th><th>Y</th><th>B</th><th>Net</th><th></th></tr>
-      ${recent.map(q => `<tr><td>${fmtDate(q.date)}</td><td>${esc(subjectLabel(q.subject))}</td>
-        <td>${q.d}</td><td>${q.y}</td><td>${q.b}</td><td>${fmtNet(net(q.d, q.y))}</td>
-        <td><button class="btn ghost" data-del-question="${q.id}">🗑</button></td></tr>`).join('')}
-    </table></div>` : '<div class="empty">Henüz soru kaydı yok.</div>'}
+    <h3>🕘 Son Kayıtlar</h3>
+    ${recent.length ? recent.map(q => `<div class="list-item">
+      <span class="dot" style="--c:${subjectColor(q.subject)}"></span>
+      <div class="grow"><b>${esc(subjectLabel(q.subject))}</b>
+        <div class="sub">${fmtDate(q.date)} · <span style="color:var(--ok)">${q.d}D</span> · <span style="color:var(--bad)">${q.y}Y</span> · ${q.b}B</div></div>
+      <span class="pill ok">${fmtNet(net(q.d, q.y))} net</span>
+      <button class="btn ghost" data-del-question="${q.id}" title="Sil">🗑</button></div>`).join('')
+    : emptyBox('✏️', 'Henüz soru kaydı yok.')}
   </div>`;
 };
 
@@ -612,8 +674,9 @@ VIEWS.exams = () => {
   const avg = chartData.length ? chartData.reduce((a, d) => a + d.value, 0) / chartData.length : null;
 
   return `
+  ${pageHead('📝 Deneme Takibi', 'Netler otomatik hesaplanır: 4 yanlış 1 doğruyu götürür')}
   <div class="card">
-    <h2>📝 Deneme Takibi</h2>
+    <h3>➕ Yeni Deneme</h3>
     <form id="examForm">
       <div class="form-row">
         <div><label>Deneme türü</label><select name="type" id="examType">
@@ -628,37 +691,39 @@ VIEWS.exams = () => {
           <td>${s.name} <span class="muted small">(${s.max})</span></td>
           <td><input type="number" min="0" max="${s.max}" name="d_${s.key}" value="0" data-net-input></td>
           <td><input type="number" min="0" max="${s.max}" name="y_${s.key}" value="0" data-net-input></td>
-          <td id="net_${s.key}">0</td></tr>`).join('')}
-        <tr><th>Toplam</th><th></th><th></th><th id="netTotal">0</th></tr>
+          <td id="net_${s.key}" style="font-weight:700">0</td></tr>`).join('')}
+        <tr><th>Toplam</th><th></th><th></th><th id="netTotal" style="font-size:1.1rem;color:var(--primary)">0</th></tr>
       </table></div>
-      <div class="btn-row" style="margin-top:10px"><button class="btn">Denemeyi Kaydet</button></div>
+      <div class="btn-row" style="margin-top:12px"><button class="btn">💾 Denemeyi Kaydet</button></div>
     </form>
   </div>
 
+  <div class="grid grid-2">
   <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
-      <h3 style="margin:0">📈 Net Gelişimi</h3>
+    <div class="card-head">
+      <h3>📈 Net Gelişimi</h3>
       <div class="seg">${[...new Set([...types, ...state.exams.map(e => e.type)])].map(t =>
         `<button data-exam-chart="${t}" class="${t === examChartType ? 'active' : ''}">${EXAM_LABELS[t]}</button>`).join('')}</div>
     </div>
-    ${chartData.length ? `<div class="grid grid-4" style="margin-bottom:8px">
-      <div class="stat"><div class="val">${chartData.length}</div><div class="lbl">Deneme</div></div>
-      <div class="stat"><div class="val">${fmtNet(chartData[chartData.length - 1].value)}</div><div class="lbl">Son net</div></div>
-      <div class="stat"><div class="val">${fmtNet(best)}</div><div class="lbl">En iyi</div></div>
-      <div class="stat"><div class="val">${fmtNet(avg)}</div><div class="lbl">Ortalama</div></div>
+    ${chartData.length ? `<div class="grid" style="grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:8px">
+      <div class="stat center"><div class="val">${chartData.length}</div><div class="lbl">Deneme</div></div>
+      <div class="stat center"><div class="val" style="color:var(--primary)">${fmtNet(chartData[chartData.length - 1].value)}</div><div class="lbl">Son net</div></div>
+      <div class="stat center"><div class="val" style="color:var(--ok)">${fmtNet(best)}</div><div class="lbl">En iyi</div></div>
+      <div class="stat center"><div class="val">${fmtNet(avg)}</div><div class="lbl">Ortalama</div></div>
     </div>` : ''}
     ${lineChart(chartData, { maxY: maxNet })}
   </div>
 
   <div class="card">
-    <h3>Tüm Denemeler</h3>
-    ${list.length ? `<div class="table-wrap"><table>
-      <tr><th>Tarih</th><th>Tür</th><th>Ad</th><th>Net</th><th></th></tr>
-      ${list.map(e => `<tr><td>${fmtDate(e.date)}</td><td>${esc(EXAM_LABELS[e.type])}</td><td>${esc(e.name || '-')}</td>
-        <td><b>${fmtNet(examTotalNet(e))}</b></td>
-        <td style="white-space:nowrap"><button class="btn ghost" data-exam-detail="${e.id}">🔍</button>
-        <button class="btn ghost" data-del-exam="${e.id}">🗑</button></td></tr>`).join('')}
-    </table></div>` : '<div class="empty">Henüz deneme yok.</div>'}
+    <h3>🗂️ Tüm Denemeler</h3>
+    ${list.length ? list.map(e => `<div class="list-item">
+      <div class="ic blue" style="width:40px;height:40px;border-radius:12px;display:grid;place-items:center;font-weight:800;font-size:.7rem;color:var(--info)">${esc(e.type.split('-')[0])}</div>
+      <div class="grow"><b>${esc(e.name || EXAM_LABELS[e.type])}</b><div class="sub">${fmtDate(e.date)} · ${esc(EXAM_LABELS[e.type])}</div></div>
+      <span class="pill ok" style="font-size:.9rem">${fmtNet(examTotalNet(e))}</span>
+      <button class="btn ghost" data-exam-detail="${e.id}" title="Detay">🔍</button>
+      <button class="btn ghost" data-del-exam="${e.id}" title="Sil">🗑</button></div>`).join('')
+    : emptyBox('📝', 'Henüz deneme yok.')}
+  </div>
   </div>`;
 };
 VIEWS.exams.after = () => {
@@ -714,17 +779,16 @@ VIEWS.plan = () => {
   const all = state.plan.days.flat();
   const done = all.filter(p => p.done).length;
   return `
+  ${pageHead('📅 Haftalık Program', 'Programın her hafta tekrar eder; yeni haftada işaretler kendiliğinden sıfırlanır')}
   <div class="card">
-    <h2>📅 Haftalık Program</h2>
-    <p class="muted small" style="margin:0 0 10px">Programın her hafta tekrar eder. Yeni haftaya geçince tamamlandı işaretleri otomatik sıfırlanır.</p>
-    <div class="goal-row"><span>Bu haftanın ilerlemesi</span><span>${done}/${all.length}</span></div>
+    <div class="goal-row" style="margin-top:0"><span>Bu haftanın ilerlemesi</span><span>${done}/${all.length} görev</span></div>
     <div class="bar"><span style="width:${all.length ? (done / all.length) * 100 : 0}%;background:var(--ok)"></span></div>
   </div>
   <div class="week">
     ${state.plan.days.map((items, i) => `
       <div class="day ${i === td ? 'today' : ''}">
-        <h4><span>${DAY_LONG[i]}</span><span class="muted">${items.filter(p => p.done).length}/${items.length}</span></h4>
-        ${items.map(p => `<div class="plan-item ${p.done ? 'done' : ''}">
+        <h4><span>${DAY_LONG[i]}</span>${i === td ? '<span class="badge">Bugün</span>' : `<span class="muted">${items.filter(p => p.done).length}/${items.length}</span>`}</h4>
+        ${items.map(p => `<div class="plan-item ${p.done ? 'done' : ''}" style="--c:${subjectColor(p.subject)}">
           <input type="checkbox" data-plan-toggle="${i}|${p.id}" ${p.done ? 'checked' : ''}>
           <span class="txt"><b>${esc(subjectLabel(p.subject))}</b>${p.note ? '<br>' + esc(p.note) : ''}</span>
           <button class="btn ghost" style="padding:0 4px" data-plan-del="${i}|${p.id}">✕</button></div>`).join('')}
@@ -754,8 +818,9 @@ VIEWS.mistakes = () => {
     .sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
   const first = activeSubjects()[0];
   return `
+  ${pageHead('❌ Yanlış Defteri', `${state.mistakes.filter(m => !m.solved).length} soru tekrar edilmeyi bekliyor`)}
   <div class="card">
-    <h2>❌ Yanlış Soru Defteri</h2>
+    <h3>➕ Yanlış Ekle</h3>
     <form id="mistakeForm">
       <div class="form-row">
         <div><label>Ders</label><select name="subject" id="mistakeSubject">${subjectOptions(first.id)}</select></div>
@@ -780,10 +845,10 @@ VIEWS.mistakes = () => {
   </div>
 
   ${list.length ? `<div class="mistake-grid">${list.map(m => `
-    <div class="mistake ${m.solved ? 'solved' : ''}">
+    <div class="mistake ${m.solved ? 'solved' : ''}" style="--c:${subjectColor(m.subject)}">
       ${m.img ? `<img src="${m.img}" alt="Soru" data-zoom="${m.id}">` : ''}
       <div class="body">
-        <div><span class="tag">${esc(subjectLabel(m.subject))}</span></div>
+        <div>${subjectTag(m.subject)}</div>
         ${m.topic ? `<b class="small">${esc(m.topic)}</b>` : ''}
         ${m.note ? `<div class="small" style="white-space:pre-wrap">${esc(m.note)}</div>` : ''}
         <div class="muted small" style="margin-top:auto">${fmtDate(m.date)}</div>
@@ -792,7 +857,7 @@ VIEWS.mistakes = () => {
           <button class="btn sm ghost" data-del-mistake="${m.id}">🗑 Sil</button>
         </div>
       </div>
-    </div>`).join('')}</div>` : '<div class="card empty">Bu filtrede kayıt yok.</div>'}`;
+    </div>`).join('')}</div>` : `<div class="card">${emptyBox('🎉', 'Bu filtrede kayıt yok.')}</div>`}`;
 };
 function topicOptions(sid) {
   const s = subjectById(sid);
@@ -834,8 +899,8 @@ VIEWS.settings = () => {
   let usedKb = 0;
   try { usedKb = Math.round((localStorage.getItem(STORE_KEY) || '').length / 1024); } catch (e) { /* yoksay */ }
   return `
+  ${pageHead('⚙️ Ayarlar', 'Alanını, hedeflerini ve görünümü düzenle')}
   <div class="card">
-    <h2>⚙️ Ayarlar</h2>
     <form id="settingsForm">
       <div class="form-row">
         <div><label>Alan</label><select name="field">
@@ -865,7 +930,7 @@ VIEWS.settings = () => {
     <p class="muted small">Tüm veriler sadece bu tarayıcıda saklanır (${usedKb} KB). Başka cihaza geçmek veya kaybetmemek için düzenli yedek al.</p>
     <div class="btn-row">
       <button class="btn" data-export>⬇ Yedeği indir</button>
-      <label class="btn secondary" style="margin:0;color:var(--primary)">⬆ Yedekten yükle
+      <label class="btn secondary" style="margin:0;color:var(--primary);font-size:inherit">⬆ Yedekten yükle
         <input type="file" accept="application/json,.json" id="importFile" hidden></label>
       <button class="btn danger" data-reset>Tüm verileri sil</button>
     </div>
@@ -905,6 +970,28 @@ document.addEventListener('click', e => {
   const d = t.dataset;
 
   if (d.closeModal !== undefined) return closeModal();
+
+  if (d.step) {
+    const input = t.parentElement.querySelector('input');
+    const max = input.max ? Number(input.max) : Infinity;
+    input.value = Math.min(max, Math.max(0, (parseInt(input.value, 10) || 0) + Number(d.step)));
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return;
+  }
+  if (d.themeToggle !== undefined) {
+    const root = document.documentElement;
+    const dark = root.getAttribute('data-theme') === 'dark' ||
+      (!root.getAttribute('data-theme') && matchMedia('(prefers-color-scheme: dark)').matches);
+    state.settings.theme = dark ? 'light' : 'dark';
+    save(); applyTheme();
+    return;
+  }
+  if (d.more !== undefined) {
+    const items = [['questions', '✏️', 'Sorular'], ['plan', '📅', 'Program'], ['mistakes', '❌', 'Yanlış Defteri'], ['settings', '⚙️', 'Ayarlar']];
+    openModal(`<h3>Diğer bölümler</h3><div class="more-grid">${items.map(([v, i, l]) =>
+      `<a href="#${v}" data-close-link><span class="ico">${i}</span>${l}</a>`).join('')}</div>`);
+    return;
+  }
 
   if (d.pickField) {
     state.settings.field = d.pickField;
@@ -1098,21 +1185,18 @@ document.addEventListener('submit', async e => {
   }
 });
 
-$('#themeToggle').addEventListener('click', () => {
-  const dark = document.documentElement.getAttribute('data-theme') === 'dark' ||
-    (!document.documentElement.getAttribute('data-theme') && matchMedia('(prefers-color-scheme: dark)').matches);
-  state.settings.theme = dark ? 'light' : 'dark';
-  save(); applyTheme();
-});
+// "Daha" menüsünde aynı sayfaya dokunulursa da menüyü kapat
+document.addEventListener('click', e => { if (e.target.closest('[data-close-link]')) closeModal(); });
 
 /* =========================================================
    Başlangıç
    ========================================================= */
+const FIELD_ICONS = { SAY: '🔬', EA: '⚖️', SOZ: '📜', DIL: '🌍' };
 function askField() {
   openModal(`<h2>👋 Hoş geldin!</h2>
     <p>YKS'de hangi alana hazırlanıyorsun? Konular ve denemeler buna göre ayarlanacak. (Sonradan Ayarlar'dan değiştirebilirsin.)</p>
     <div class="field-pick">${Object.entries(FIELDS).map(([k, f]) =>
-      `<button class="btn ${k === 'SAY' ? '' : 'secondary'}" data-pick-field="${k}">${f.name}</button>`).join('')}</div>`);
+      `<button data-pick-field="${k}"><span>${FIELD_ICONS[k]}</span>${f.name}</button>`).join('')}</div>`);
 }
 
 applyTheme();
