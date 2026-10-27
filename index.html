@@ -2,35 +2,70 @@
 <html lang="tr">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#4f46e5">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#5b4cf0">
   <title>YKS Çalışma Platformu</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+  <!-- Masaüstü yan menü -->
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-logo">🎓</div><div>YKS Çalışma<small id="sideField"></small></div></div>
+    <a class="nav-link" href="#home" data-view="home"><span class="ico">🏠</span>Ana Sayfa</a>
+    <a class="nav-link" href="#topics" data-view="topics"><span class="ico">📖</span>Konular</a>
+    <a class="nav-link" href="#timer" data-view="timer"><span class="ico">⏱️</span>Sayaç</a>
+    <a class="nav-link" href="#questions" data-view="questions"><span class="ico">✏️</span>Sorular</a>
+    <a class="nav-link" href="#exams" data-view="exams"><span class="ico">📝</span>Denemeler</a>
+    <a class="nav-link" href="#plan" data-view="plan"><span class="ico">📅</span>Program</a>
+    <a class="nav-link" href="#mistakes" data-view="mistakes"><span class="ico">❌</span>Yanlış Defteri</a>
+    <a class="nav-link" href="#settings" data-view="settings"><span class="ico">⚙️</span>Ayarlar</a>
+    <div class="side-count" id="sideCount"></div>
+    <div class="side-actions"><button class="icon-btn" data-theme-toggle title="Tema değiştir">🌓</button></div>
+  </aside>
+
+  <!-- Telefon üst çubuk -->
   <header class="topbar">
-    <div class="brand">📚 YKS Çalışma</div>
-    <div class="countdown" id="topCountdown"></div>
-    <button class="icon-btn" id="themeToggle" title="Tema değiştir">🌓</button>
+    <div class="brand"><div class="brand-logo">🎓</div>YKS Çalışma</div>
+    <div class="chip-count" id="topCountdown"></div>
+    <button class="icon-btn" data-theme-toggle title="Tema değiştir">🌓</button>
   </header>
 
-  <nav class="tabs" id="tabs">
-    <a href="#home" data-view="home">🏠 Ana Sayfa</a>
-    <a href="#topics" data-view="topics">📖 Konular</a>
-    <a href="#timer" data-view="timer">⏱️ Sayaç</a>
-    <a href="#questions" data-view="questions">✏️ Sorular</a>
-    <a href="#exams" data-view="exams">📝 Denemeler</a>
-    <a href="#plan" data-view="plan">📅 Program</a>
-    <a href="#mistakes" data-view="mistakes">❌ Yanlışlar</a>
-    <a href="#settings" data-view="settings">⚙️ Ayarlar</a>
-  </nav>
-
   <main id="app"></main>
+
+  <!-- Telefon alt menü -->
+  <nav class="bottom-nav">
+    <a href="#home" data-view="home"><span class="ico">🏠</span>Ana Sayfa</a>
+    <a href="#topics" data-view="topics"><span class="ico">📖</span>Konular</a>
+    <a href="#timer" data-view="timer"><span class="ico">⏱️</span>Sayaç</a>
+    <a href="#exams" data-view="exams"><span class="ico">📝</span>Deneme</a>
+    <button data-more data-view-group="questions plan mistakes settings"><span class="ico">☰</span>Daha</button>
+  </nav>
 
   <div class="modal" id="modal" hidden>
     <div class="modal-box" id="modalBox"></div>
   </div>
   <div class="toast" id="toast" hidden></div>
+
+  <!-- Grafik degradeleri -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#8b5cf6"/><stop offset="1" stop-color="#5b4cf0" stop-opacity=".55"/>
+      </linearGradient>
+      <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#8b5cf6" stop-opacity=".35"/><stop offset="1" stop-color="#8b5cf6" stop-opacity="0"/>
+      </linearGradient>
+      <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#5b4cf0"/><stop offset="1" stop-color="#d946ef"/>
+      </linearGradient>
+      <linearGradient id="ringGradOk" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#06b6d4"/>
+      </linearGradient>
+    </defs>
+  </svg>
 
   <script src="js/data.js"></script>
   <script src="js/app.js"></script>
