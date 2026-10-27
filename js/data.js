@@ -179,3 +179,11 @@ const PUAN = {
 };
 // AYT/YDT puan türlerinde TYT %40 ağırlıkla girer
 const PUAN_TYT_IN_AYT = { tr: 1.32, sos: 1.36, mat: 1.32, fen: 1.36 };
+
+// Hazır kamplar (YouTube oynatma listeleri). Ad ve ders, Kamplar ekranından değiştirilebilir.
+const SEED_CAMPS = [
+  { name: 'Kamp 1', subject: 'other', link: 'https://youtube.com/playlist?list=PLVoSZ0D0CB3qkytIGl01_CAPZuKgaMbxw' },
+  { name: 'Kamp 2', subject: 'other', link: 'https://youtube.com/playlist?list=PLBals97P4r_ZfnhNcNTUhF36t17ynwZho' },
+  { name: 'Kamp 3', subject: 'other', link: 'https://youtu.be/kP_Iw5sDn6o' },
+  { name: 'Kamp 4', subject: 'other', link: 'https://youtube.com/playlist?list=PLwyfvkhKMmwqWbRHpDnhpBCRxiyNkZgq0' },
+];

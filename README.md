@@ -6,12 +6,17 @@ Tüm alanları destekler: **Sayısal, Eşit Ağırlık, Sözel, Dil**.
 ## Özellikler
 - 🏠 **Ana Sayfa** – YKS geri sayımı, bugünkü çalışma/soru, çalışma serisi 🔥, günlük hedefler, son 7 gün grafikleri, günün programı
 - 📖 **Konular** – TYT + alanına göre AYT/YDT konu listesi; her konu için Başlanmadı → Çalışılıyor → Bitti → Tekrar Edildi
+- 🏕️ **Kamplar** – YouTube oynatma listelerini kampa dönüştürür: video sırası, izlenenler, günlük video hedefi, tahmini bitiş tarihi; biten videolar otomatik işaretlenir ve süresi çalışmaya eklenir
+- 🧮 **Puan Hesapla** – Netlerden tahmini TYT / SAY / EA / SÖZ / DİL puanı ve OBP katkısı
 - ⏱️ **Sayaç** – Pomodoro (çalışma / kısa mola / uzun mola), derse göre otomatik süre kaydı, elle çalışma ekleme
 - ✏️ **Sorular** – Günlük doğru/yanlış/boş kaydı, ders bazında başarı yüzdesi
 - 📝 **Denemeler** – TYT, AYT (SAY/EA/SÖZ), YDT netleri (4 yanlış 1 doğruyu götürür), net gelişim grafiği
 - 📅 **Program** – Her hafta tekrar eden haftalık plan, işaretler her yeni haftada sıfırlanır
 - ❌ **Yanlış Defteri** – Fotoğraflı/notlu yanlış sorular, "Öğrendim" işareti
 - ⚙️ **Ayarlar** – Alan, sınav tarihi, pomodoro süreleri, hedefler, açık/koyu tema, yedek alma/yükleme
+
+## Not
+Kamplardaki YouTube oynatıcısı, sayfa `file://` olarak açıldığında bazı tarayıcılarda çalışmayabilir; GitHub Pages gibi bir adresten açınca sorunsuz çalışır.
 
 ## Veriler
 Veriler yalnızca kullandığın tarayıcıda (localStorage) saklanır, hesap gerekmez.
