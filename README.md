@@ -18,6 +18,19 @@ Tüm alanları destekler: **Sayısal, Eşit Ağırlık, Sözel, Dil**.
 ## Not
 Kamplardaki YouTube oynatıcısı, sayfa `file://` olarak açıldığında bazı tarayıcılarda çalışmayabilir; GitHub Pages gibi bir adresten açınca sorunsuz çalışır.
 
+## 📱 Telefona kurma
+**Android (APK):** Depodaki **Releases** bölümünden en son `YKS-Calisma.apk` dosyasını indirip aç.
+APK, `main` dalına `android-app/` klasöründe değişiklik geldiğinde GitHub Actions tarafından otomatik derlenir
+(Actions → "Android APK" → *Run workflow* ile elle de başlatılabilir).
+Uygulama yayındaki siteyi açar; bu yüzden sitedeki her güncelleme uygulamaya da kendiliğinden gelir.
+
+**Ana ekrana ekleme (PWA):** Siteyi Chrome'da açıp menüden *Ana ekrana ekle* / *Uygulamayı yükle* seçilebilir.
+Bir kez açıldıktan sonra internetsiz de çalışır.
+
+> Not: APK'lar `android-app/keystore/debug.keystore` anahtarıyla imzalanır. Bu sayede yeni sürüm eskisinin
+> üstüne kurulur ve veriler silinmez. Anahtar depoda herkese açık olduğu için APK'yı yalnızca bu deponun
+> Releases sayfasından indir.
+
 ## Veriler
 Veriler yalnızca kullandığın tarayıcıda (localStorage) saklanır, hesap gerekmez.
 Cihaz değiştirirken veya veri kaybetmemek için **Ayarlar → Yedeği indir** kullan.
