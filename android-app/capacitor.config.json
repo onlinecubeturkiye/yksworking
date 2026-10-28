@@ -1,0 +1,13 @@
+{
+  "appId": "io.github.onlinecubeturkiye.yks",
+  "appName": "YKS Çalışma",
+  "webDir": "www",
+  "server": {
+    "url": "https://onlinecubeturkiye.github.io/yksworking/",
+    "androidScheme": "https",
+    "errorPath": "offline.html"
+  },
+  "android": {
+    "backgroundColor": "#0c0d16"
+  }
+}

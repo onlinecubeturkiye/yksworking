@@ -1645,4 +1645,8 @@ function ensureCamps() {
 ensureCamps();
 applyTheme();
 route();
+// Çevrimdışı kullanım ve "ana ekrana ekle" için
+if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
 if (!state.settings.field) askField();

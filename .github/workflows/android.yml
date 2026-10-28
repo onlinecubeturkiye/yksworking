@@ -1,0 +1,76 @@
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'android-app/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'android-app/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: android-app/package-lock.json
+
+      - name: Bağımlılıkları kur
+        run: npm ci
+
+      - name: Android projesini oluştur
+        run: |
+          npx cap add android
+          cp -r res/. android/app/src/main/res/
+          sed -i "s/versionCode 1$/versionCode ${{ github.run_number }}/; s/versionName \"1.0\"/versionName \"1.0.${{ github.run_number }}\"/" android/app/build.gradle
+          grep -n "versionCode\|versionName" android/app/build.gradle
+
+      # Her sürüm aynı anahtarla imzalanır; böylece yeni APK eskisinin üstüne kurulur ve veriler kaybolmaz
+      - name: İmza anahtarını hazırla
+        run: |
+          mkdir -p ~/.android
+          cp keystore/debug.keystore ~/.android/debug.keystore
+
+      - name: APK derle
+        working-directory: android-app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+          cp app/build/outputs/apk/debug/app-debug.apk ../YKS-Calisma.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: YKS-Calisma-apk
+          path: android-app/YKS-Calisma.apk
+
+      - name: Sürüm (Release) yayınla
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-v1.0.${{ github.run_number }}
+          name: YKS Çalışma 1.0.${{ github.run_number }}
+          make_latest: true
+          files: android-app/YKS-Calisma.apk
+          body: |
+            📱 Telefonuna kurmak için aşağıdaki **YKS-Calisma.apk** dosyasını indir ve aç.
+            İlk kurulumda "bilinmeyen kaynaklardan yükleme" izni istenebilir.
