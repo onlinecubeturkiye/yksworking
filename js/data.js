@@ -167,3 +167,23 @@ const QUOTES = [
   'Az ama her gün, çok ama ara sıradan iyidir.',
   'Sınav bir gün; hazırlık her gün.',
 ];
+
+// Yaklaşık puan katsayıları (ÖSYM her yıl standart sapmaya göre hesaplar; bunlar tahmindir)
+// Ham puan = 100 + Σ(net × katsayı). Her puan türünde en yüksek ham puan 500'dür.
+const PUAN = {
+  TYT: { name: 'TYT', tyt: { tr: 3.3, sos: 3.4, mat: 3.3, fen: 3.4 }, ayt: null },
+  SAY: { name: 'Sayısal', aytType: 'AYT-SAY', ayt: { mat: 3.0, fiz: 2.85, kim: 3.07, bio: 3.07 } },
+  EA: { name: 'Eşit Ağırlık', aytType: 'AYT-EA', ayt: { mat: 3.0, edb: 3.0, tar1: 2.8, cog1: 3.33 } },
+  SOZ: { name: 'Sözel', aytType: 'AYT-SOZ', ayt: { edb: 3.0, tar1: 2.8, cog1: 3.33, tar2: 2.91, cog2: 2.91, fel: 3.0, din: 3.33 } },
+  DIL: { name: 'Dil', aytType: 'YDT', ayt: { ydt: 3.0 } },
+};
+// AYT/YDT puan türlerinde TYT %40 ağırlıkla girer
+const PUAN_TYT_IN_AYT = { tr: 1.32, sos: 1.36, mat: 1.32, fen: 1.36 };
+
+// Hazır kamplar (YouTube oynatma listeleri). Ad ve ders, Kamplar ekranından değiştirilebilir.
+const SEED_CAMPS = [
+  { name: 'Kamp 1', subject: 'other', link: 'https://youtube.com/playlist?list=PLVoSZ0D0CB3qkytIGl01_CAPZuKgaMbxw' },
+  { name: 'Kamp 2', subject: 'other', link: 'https://youtube.com/playlist?list=PLBals97P4r_ZfnhNcNTUhF36t17ynwZho' },
+  { name: 'Kamp 3', subject: 'other', link: 'https://youtu.be/kP_Iw5sDn6o' },
+  { name: 'Kamp 4', subject: 'other', link: 'https://youtube.com/playlist?list=PLwyfvkhKMmwqWbRHpDnhpBCRxiyNkZgq0' },
+];

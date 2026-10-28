@@ -22,6 +22,8 @@ const DEFAULT_STATE = {
   exams: [],       // {id, date, type, name, sections:{key:{d,y}}}
   plan: { week: '', days: [[], [], [], [], [], [], []] }, // {id, subject, note, done}
   mistakes: [],    // {id, date, subject, topic, note, img, solved}
+  calc: { type: null, nets: {}, diploma: '', placed: false }, // puan hesaplama girdileri
+  camps: null,     // YouTube kampları (ilk açılışta hazır kamplarla doldurulur)
 };
 
 let state = load();
@@ -35,6 +37,8 @@ function load() {
       ...structuredClone(DEFAULT_STATE), ...s,
       settings: { ...DEFAULT_STATE.settings, ...(s.settings || {}) },
       plan: s.plan && Array.isArray(s.plan.days) ? s.plan : structuredClone(DEFAULT_STATE.plan),
+      calc: { ...DEFAULT_STATE.calc, ...(s.calc || {}) },
+      camps: Array.isArray(s.camps) ? s.camps : null,
     };
   } catch (e) {
     return structuredClone(DEFAULT_STATE);
@@ -279,9 +283,12 @@ function last7(fn) {
 const VIEWS = {};
 let currentView = 'home';
 
+let viewParam = null;
 function route() {
-  const v = (location.hash || '#home').slice(1);
+  const [v, param] = (location.hash || '#home').slice(1).split('/');
   currentView = VIEWS[v] ? v : 'home';
+  viewParam = param ? decodeURIComponent(param) : null;
+  destroyCampPlayer();
   $$('[data-view]').forEach(a => a.classList.toggle('active', a.dataset.view === currentView));
   $$('[data-view-group]').forEach(b => b.classList.toggle('active', b.dataset.viewGroup.split(' ').includes(currentView)));
   if (!$('#modal').hidden && state.settings.field) closeModal();
@@ -289,7 +296,8 @@ function route() {
   window.scrollTo(0, 0);
 }
 function render(animate = false) {
-  $('#app').innerHTML = `<div class="${animate ? 'view' : ''}">${VIEWS[currentView]()}</div>`;
+  destroyCampPlayer();
+  $('#app').innerHTML = `<div class="${animate ? 'view' : ''}">${VIEWS[currentView](viewParam)}</div>`;
   if (VIEWS[currentView].after) VIEWS[currentView].after();
   updateTopbar();
 }
@@ -390,6 +398,15 @@ VIEWS.home = () => {
       ${barChart(last7(questionsOn))}
     </div>
   </div>
+
+  ${state.camps.length ? `<div class="card">
+    <div class="card-head"><h3>🏕️ Kamplarım</h3><a class="btn sm secondary" href="#camps">Tümü →</a></div>
+    ${state.camps.slice(0, 4).map(c => { const s2 = campStats(c); return `<a href="#camp/${c.id}" class="list-item" style="text-decoration:none;color:inherit">
+      <span class="dot" style="--c:${subjectColor(c.subject)}"></span>
+      <div class="grow"><b>${esc(c.name)}</b><div class="sub">${s2.total ? `${s2.done}/${s2.total} video · bugün ${s2.doneToday}/${c.perDay}` : 'Başlamak için aç'}</div>
+        <div class="bar" style="margin-top:6px;height:6px"><span style="width:${s2.pct}%;background:${subjectColor(c.subject)}"></span></div></div>
+      <span class="pill ${s2.total && s2.doneToday >= c.perDay ? 'ok' : 'warn'}">${s2.total && s2.doneToday >= c.perDay ? '✓ Hedef' : '▶ Devam'}</span></a>`; }).join('')}
+  </div>` : ''}
 
   <div class="card">
     <div class="card-head"><h3>📅 Bugünün Programı · ${DAY_LONG[weekdayIdx()]}</h3><a class="btn sm secondary" href="#plan">Düzenle</a></div>
@@ -751,6 +768,8 @@ function examDetail(id) {
       return `<tr><td>${s.name}</td><td>${v.d}</td><td>${v.y}</td><td>${s.max - v.d - v.y}</td><td>${fmtNet(net(v.d, v.y))}</td></tr>`;
     }).join('')}
     <tr><th>Toplam</th><th></th><th></th><th></th><th>${fmtNet(examTotalNet(e))}</th></tr></table>
+    ${e.type === 'TYT' ? `<p class="small" style="margin:12px 0 0">🧮 Tahmini TYT ham puanı: <b>${fmtPuan(100 + EXAM_SECTIONS.TYT.reduce((a, s) =>
+      a + Math.max(0, net(e.sections[s.key]?.d, e.sections[s.key]?.y)) * PUAN.TYT.tyt[s.key], 0))}</b></p>` : ''}
     <div class="btn-row" style="margin-top:14px"><button class="btn" data-close-modal>Kapat</button></div>`);
 }
 
@@ -891,6 +910,383 @@ function compressImage(file, maxSize = 900, quality = 0.7) {
   });
 }
 
+
+/* =========================================================
+   PUAN HESAPLAMA (tahmini)
+   ========================================================= */
+// nets: { 'TYT.tr': {d, y}, 'AYT-SAY.mat': {d, y}, ... }
+function calcNet(nets, exam, key) {
+  const v = nets[`${exam}.${key}`] || {};
+  return Math.max(0, net(v.d, v.y));
+}
+function calcScores(type, nets, diploma, placed) {
+  const tytRaw = 100 + Object.entries(PUAN.TYT.tyt).reduce((a, [k, c]) => a + calcNet(nets, 'TYT', k) * c, 0);
+  let aytRaw = null;
+  if (type !== 'TYT') {
+    const p = PUAN[type];
+    aytRaw = 100
+      + Object.entries(PUAN_TYT_IN_AYT).reduce((a, [k, c]) => a + calcNet(nets, 'TYT', k) * c, 0)
+      + Object.entries(p.ayt).reduce((a, [k, c]) => a + calcNet(nets, p.aytType, k) * c, 0);
+  }
+  const dip = Number(diploma);
+  const obp = dip >= 50 && dip <= 100 ? dip * 5 : 0;
+  const obpAdd = obp * (placed ? 0.06 : 0.12);
+  return { tytRaw, aytRaw, obp, obpAdd, tytPlace: tytRaw + obpAdd, aytPlace: aytRaw == null ? null : aytRaw + obpAdd };
+}
+const fmtPuan = n => (Math.round(n * 1000) / 1000).toLocaleString('tr-TR', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+
+function netTable(exam) {
+  const nets = state.calc.nets;
+  return `<div class="table-wrap"><table>
+    <tr><th>${esc(EXAM_LABELS[exam])}</th><th>Doğru</th><th>Yanlış</th><th>Net</th></tr>
+    ${EXAM_SECTIONS[exam].map(s => {
+      const v = nets[`${exam}.${s.key}`] || { d: 0, y: 0 };
+      return `<tr><td>${s.name} <span class="muted small">(${s.max})</span></td>
+        <td><input type="number" min="0" max="${s.max}" data-calc="${exam}.${s.key}.d" value="${v.d || 0}"></td>
+        <td><input type="number" min="0" max="${s.max}" data-calc="${exam}.${s.key}.y" value="${v.y || 0}"></td>
+        <td style="font-weight:700">${fmtNet(calcNet(nets, exam, s.key))}</td></tr>`;
+    }).join('')}</table></div>`;
+}
+
+VIEWS.score = () => {
+  const c = state.calc;
+  c.type ||= state.settings.field || 'SAY';
+  const r = calcScores(c.type, c.nets, c.diploma, c.placed);
+  const p = PUAN[c.type];
+  const low = r.tytRaw < 150;
+  return `
+  ${pageHead('🧮 Puan Hesaplama', 'Netlerini gir, tahmini YKS puanını gör')}
+  <div class="grid grid-2">
+    <div>
+      <div class="card">
+        <div class="card-head"><h3>Puan türü</h3>
+          <button class="btn sm secondary" data-calc-fill>⚡ Son denemelerimden doldur</button></div>
+        <div class="seg">${['SAY', 'EA', 'SOZ', 'DIL'].map(t =>
+          `<button data-calc-type="${t}" class="${c.type === t ? 'active' : ''}">${PUAN[t].name}</button>`).join('')}</div>
+      </div>
+      <div class="card">${netTable('TYT')}</div>
+      <div class="card">${netTable(p.aytType)}</div>
+      <div class="card">
+        <h3>🎓 Okul puanı (OBP)</h3>
+        <div class="form-row">
+          <div><label>Diploma notu (50–100)</label>
+            <input type="number" min="50" max="100" step="0.01" data-calc-diploma value="${esc(c.diploma)}" placeholder="örn. 85,5"></div>
+        </div>
+        <label style="display:flex;gap:8px;align-items:center;cursor:pointer;color:var(--text);font-weight:500">
+          <input type="checkbox" data-calc-placed ${c.placed ? 'checked' : ''} style="width:auto;accent-color:var(--primary)">
+          Geçen yıl bir programa yerleştim (OBP katkısı yarıya düşer)</label>
+      </div>
+    </div>
+
+    <div class="score-result">
+      <div class="hero" style="margin-bottom:16px">
+        <div class="hero-top"><span>Tahmini yerleştirme puanı</span><span>${esc(p.name)}</span></div>
+        <div style="font-size:2.6rem;font-weight:800;margin:8px 0 2px">${fmtPuan(r.aytPlace)}</div>
+        <div style="opacity:.9">Ham puan ${fmtPuan(r.aytRaw)}${r.obpAdd ? ` + OBP katkısı ${fmtPuan(r.obpAdd)}` : ''}</div>
+      </div>
+      <div class="grid" style="grid-template-columns:1fr 1fr">
+        <div class="card stat center"><div class="lbl">TYT ham puan</div><div class="val">${fmtPuan(r.tytRaw)}</div></div>
+        <div class="card stat center"><div class="lbl">TYT yerleştirme</div><div class="val">${fmtPuan(r.tytPlace)}</div></div>
+        <div class="card stat center"><div class="lbl">${esc(p.name)} ham puan</div><div class="val">${fmtPuan(r.aytRaw)}</div></div>
+        <div class="card stat center"><div class="lbl">OBP</div><div class="val">${r.obp ? fmtPuan(r.obp) : '–'}</div></div>
+      </div>
+      ${low ? `<div class="card" style="border-color:var(--warn);background:var(--warn-soft);margin-top:16px">
+        ⚠️ <b>TYT puanın 150'nin altında.</b> Lisans programları ve ${esc(p.name)} puanı için TYT'den en az 150 almak gerekir.</div>` : ''}
+      <div class="card" style="margin-top:16px">
+        <h3>ℹ️ Nasıl hesaplanıyor?</h3>
+        <p class="small muted" style="margin:0">Net = Doğru − Yanlış ÷ 4. Ham puan = 100 + her testin neti × katsayısı.
+        TYT, ${esc(p.name)} puanına %40, ${p.aytType === 'YDT' ? 'YDT' : 'AYT'} %60 ağırlıkla girer.
+        Yerleştirme puanına OBP × 0,12 eklenir (geçen yıl yerleştiysen × 0,06).<br><br>
+        <b>Not:</b> ÖSYM katsayıları her yıl adayların ortalamasına göre değişir ve önceden açıklanmaz.
+        Buradaki katsayılar yaklaşıktır; gerçek puanın birkaç puan farklı çıkabilir.</p>
+      </div>
+    </div>
+  </div>`;
+};
+VIEWS.score.after = () => {
+  // Yazarken tüm sayfayı yeniden çizmek odağı kaçırır; sadece değişince (blur/enter) güncelle
+  $$('[data-calc]').forEach(inp => inp.addEventListener('change', () => {
+    const [exam, key, f] = inp.dataset.calc.split('.');
+    const max = Number(inp.max);
+    const k = `${exam}.${key}`;
+    const v = (state.calc.nets[k] ||= { d: 0, y: 0 });
+    v[f] = Math.min(max, Math.max(0, parseInt(inp.value, 10) || 0));
+    if (v.d + v.y > max) { v[f] = max - (f === 'd' ? v.y : v.d); toast(`Doğru + yanlış ${max}'i geçemez`); }
+    save(); renderKeepScroll();
+  }));
+  $('[data-calc-diploma]').addEventListener('change', e => { state.calc.diploma = e.target.value; save(); renderKeepScroll(); });
+  $('[data-calc-placed]').addEventListener('change', e => { state.calc.placed = e.target.checked; save(); renderKeepScroll(); });
+};
+function renderKeepScroll() {
+  const y = window.scrollY;
+  render();
+  window.scrollTo(0, y);
+}
+function fillCalcFromExams() {
+  const c = state.calc;
+  const types = ['TYT', PUAN[c.type].aytType];
+  let filled = 0;
+  types.forEach(t => {
+    const last = state.exams.filter(e => e.type === t).sort((a, b) => b.date.localeCompare(a.date))[0];
+    if (!last) return;
+    filled++;
+    EXAM_SECTIONS[t].forEach(s => {
+      const v = last.sections[s.key] || { d: 0, y: 0 };
+      c.nets[`${t}.${s.key}`] = { d: v.d, y: v.y };
+    });
+  });
+  save();
+  toast(filled ? '✅ Son deneme netlerin dolduruldu' : 'Bu puan türü için kayıtlı deneme yok');
+  renderKeepScroll();
+}
+
+
+/* =========================================================
+   KAMPLAR (YouTube oynatma listeleri)
+   ========================================================= */
+// Bağlantıdan oynatma listesi veya video kimliğini çıkar
+function parseYouTube(link) {
+  try {
+    const u = new URL(String(link).trim());
+    const list = u.searchParams.get('list');
+    if (list) return { kind: 'playlist', ref: list };
+    if (/youtu\.be$/.test(u.hostname)) return { kind: 'video', ref: u.pathname.slice(1).split('/')[0] };
+    const v = u.searchParams.get('v');
+    if (v) return { kind: 'video', ref: v };
+    const m = u.pathname.match(/\/(?:shorts|embed|live)\/([\w-]{6,})/);
+    if (m) return { kind: 'video', ref: m[1] };
+  } catch (e) { /* geçersiz bağlantı */ }
+  return null;
+}
+function newCamp(name, subject, link, perDay = 2) {
+  const yt = parseYouTube(link);
+  if (!yt) return null;
+  return {
+    id: uid(), name: name || 'Yeni Kamp', subject: subject || 'other', link, ...yt, perDay,
+    videos: yt.kind === 'video' ? [yt.ref] : [], titles: {}, done: {}, logTime: true, created: dateStr(),
+  };
+}
+const campById = id => state.camps.find(c => c.id === id);
+function campStats(c) {
+  const total = c.videos.length;
+  const done = c.videos.filter(v => c.done[v]).length;
+  const today = dateStr();
+  const doneToday = Object.values(c.done).filter(d => d === today).length;
+  const remaining = total - done;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  const daysLeft = c.perDay > 0 ? Math.ceil(remaining / c.perDay) : null;
+  const finish = daysLeft != null && remaining > 0 ? addDays(today, Math.max(0, daysLeft - (doneToday >= c.perDay ? 0 : 1))) : null;
+  return { total, done, doneToday, remaining, pct, finish };
+}
+const ytThumb = id => `https://i.ytimg.com/vi/${encodeURIComponent(id)}/mqdefault.jpg`;
+const campThumb = c => c.videos.length ? ytThumb(c.videos.find(v => !c.done[v]) || c.videos[0]) : '';
+
+function campCard(c) {
+  const st = campStats(c);
+  return `<a href="#camp/${c.id}" class="card camp-card" style="--c:${subjectColor(c.subject)}">
+    <div class="camp-thumb">${c.videos.length ? `<img src="${campThumb(c)}" alt="" loading="lazy">` : '<span>▶</span>'}
+      ${st.total ? `<b class="camp-badge">${st.done}/${st.total}</b>` : ''}</div>
+    <div class="camp-body">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+        <b class="camp-name">${esc(c.name)}</b>${subjectTag(c.subject)}</div>
+      <div class="bar" style="margin:10px 0 6px"><span style="width:${st.pct}%;background:var(--c)"></span></div>
+      <div class="sub muted small">${st.total ? `%${st.pct} tamamlandı · bugün ${st.doneToday}/${c.perDay} video` : 'Açınca video listesi yüklenecek'}</div>
+    </div></a>`;
+}
+
+VIEWS.camps = () => `
+  ${pageHead('🏕️ Kamplar', 'YouTube oynatma listelerini kampa dönüştür, her gün hedefini tamamla',
+    '<button class="btn" data-camp-new>+ Yeni kamp</button>')}
+  ${state.camps.length ? `<div class="camp-grid">${state.camps.map(campCard).join('')}</div>`
+    : `<div class="card">${emptyBox('🏕️', 'Henüz kamp yok. Bir YouTube oynatma listesi ekleyerek başla.')}</div>`}`;
+
+function campFormModal(c) {
+  openModal(`<h3>${c ? 'Kampı düzenle' : 'Yeni kamp'}</h3>
+    <form id="campForm" data-id="${c ? c.id : ''}">
+      <div class="form-row"><div><label>Kamp adı</label><input name="name" required value="${esc(c ? c.name : '')}" placeholder="örn. TYT Matematik Kampı"></div></div>
+      <div class="form-row"><div><label>Ders</label><select name="subject">${subjectOptions(c ? c.subject : undefined)}</select></div></div>
+      ${c ? '' : `<div class="form-row"><div><label>YouTube oynatma listesi veya video bağlantısı</label>
+        <input name="link" required placeholder="https://youtube.com/playlist?list=..."></div></div>`}
+      <div class="form-row">
+        <div><label>Günlük video hedefi</label><input name="perDay" type="number" min="1" max="50" value="${c ? c.perDay : 2}"></div>
+      </div>
+      <label style="display:flex;gap:8px;align-items:center;cursor:pointer;color:var(--text);font-weight:500;margin-bottom:14px">
+        <input type="checkbox" name="logTime" ${!c || c.logTime ? 'checked' : ''} style="width:auto;accent-color:var(--primary)">
+        Biten videoların süresini çalışma süreme ekle</label>
+      <div class="btn-row"><button class="btn">${c ? 'Kaydet' : 'Kampı oluştur'}</button>
+        <button type="button" class="btn secondary" data-close-modal>İptal</button>
+        ${c ? `<button type="button" class="btn danger" data-camp-delete="${c.id}" style="margin-left:auto">Sil</button>` : ''}</div>
+    </form>`);
+}
+
+VIEWS.camp = id => {
+  const c = campById(id);
+  if (!c) return `<div class="card">${emptyBox('🤷', 'Kamp bulunamadı. <a href="#camps">Kamplara dön</a>')}</div>`;
+  return `
+  <div class="page-head"><div>
+    <a href="#camps" class="muted small" style="text-decoration:none">← Kamplar</a>
+    <h1>${esc(c.name)}</h1><p>${subjectTag(c.subject)}</p></div>
+    <div class="btn-row">
+      <a class="btn sm secondary" href="${esc(c.link)}" target="_blank" rel="noopener">YouTube'da aç ↗</a>
+      <button class="btn sm secondary" data-camp-edit="${c.id}">⚙️ Düzenle</button></div></div>
+  <div class="camp-layout">
+    <div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <div class="yt-wrap"><div id="ytPlayer"></div>
+          <div class="yt-fallback" id="ytFallback">Video oynatıcı yükleniyor…</div></div>
+      </div>
+      <div id="campSummary"></div>
+    </div>
+    <div class="card camp-list-card">
+      <div class="card-head"><h3>📋 Videolar</h3><span class="muted small" id="campCount"></span></div>
+      <div id="campList"></div>
+    </div>
+  </div>`;
+};
+VIEWS.camp.after = () => {
+  const c = campById(viewParam);
+  if (!c) return;
+  renderCampParts(c);
+  loadCampPlayer(c);
+};
+
+function renderCampParts(c) {
+  const st = campStats(c);
+  const sum = $('#campSummary');
+  if (!sum) return;
+  const goalPct = Math.min(100, Math.round((st.doneToday / Math.max(c.perDay, 1)) * 100));
+  sum.innerHTML = `<div class="grid" style="grid-template-columns:repeat(3,1fr);margin-top:16px">
+      <div class="card stat center"><div class="val">%${st.pct}</div><div class="lbl">${st.done}/${st.total || '?'} video</div></div>
+      <div class="card stat center"><div class="val" style="color:${goalPct >= 100 ? 'var(--ok)' : 'var(--primary)'}">${st.doneToday}/${c.perDay}</div><div class="lbl">Bugünkü hedef</div></div>
+      <div class="card stat center"><div class="val" style="font-size:1.05rem">${st.total && !st.remaining ? '🎉 Bitti' : st.finish ? fmtDate(st.finish) : '–'}</div><div class="lbl">Tahmini bitiş</div></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="goal-row" style="margin-top:0"><span>Kamp ilerlemesi</span><span>${st.remaining} video kaldı</span></div>
+      <div class="bar"><span style="width:${st.pct}%;background:${subjectColor(c.subject)}"></span></div>
+      <p class="muted small" style="margin:10px 0 0">Bir video sonuna kadar izlenince otomatik işaretlenir. İstersen listeden elle de işaretleyebilirsin.</p>
+    </div>`;
+  $('#campCount').textContent = st.total ? `${st.done}/${st.total}` : '';
+  const list = $('#campList');
+  if (!c.videos.length) {
+    list.innerHTML = emptyBox('⏳', 'Video listesi oynatıcıdan yükleniyor. İnternet bağlantını kontrol et.');
+    return;
+  }
+  const next = c.videos.findIndex(v => !c.done[v]);
+  list.innerHTML = c.videos.map((v, i) => `
+    <div class="camp-video ${c.done[v] ? 'done' : ''} ${i === campPlayer.index ? 'playing' : ''} ${i === next ? 'next' : ''}" data-video-idx="${i}">
+      <input type="checkbox" data-camp-check="${i}" ${c.done[v] ? 'checked' : ''} aria-label="İzlendi">
+      <img src="${ytThumb(v)}" alt="" loading="lazy">
+      <div class="grow"><div class="vt">${i + 1}. ${esc(c.titles[v] || 'Video ' + (i + 1))}</div>
+        <div class="sub">${c.done[v] ? `✓ ${fmtDate(c.done[v])}` : i === next ? '▶ Sıradaki' : ''}</div></div>
+    </div>`).join('');
+  const playing = list.querySelector('.playing') || list.querySelector('.next');
+  if (playing && !renderCampParts.scrolled) { playing.scrollIntoView({ block: 'nearest' }); renderCampParts.scrolled = true; }
+}
+
+/* ---------- YouTube oynatıcı ---------- */
+const campPlayer = { player: null, campId: null, index: -1, logged: {} };
+let ytApiPromise = null;
+function loadYTApi() {
+  if (window.YT && window.YT.Player) return Promise.resolve();
+  if (ytApiPromise) return ytApiPromise;
+  ytApiPromise = new Promise((resolve, reject) => {
+    window.onYouTubeIframeAPIReady = () => resolve();
+    const s = document.createElement('script');
+    s.src = 'https://www.youtube.com/iframe_api';
+    s.onerror = () => { ytApiPromise = null; reject(new Error('YouTube yüklenemedi')); };
+    document.head.appendChild(s);
+  });
+  return ytApiPromise;
+}
+function destroyCampPlayer() {
+  try { campPlayer.player && campPlayer.player.destroy(); } catch (e) { /* yoksay */ }
+  campPlayer.player = null; campPlayer.campId = null; campPlayer.index = -1;
+  renderCampParts.scrolled = false;
+}
+async function loadCampPlayer(c) {
+  try { await loadYTApi(); } catch (e) {
+    const fb = $('#ytFallback');
+    if (fb) fb.innerHTML = `Video oynatıcı yüklenemedi. <a href="${esc(c.link)}" target="_blank" rel="noopener">YouTube'da aç ↗</a>`;
+    return;
+  }
+  if (currentView !== 'camp' || viewParam !== c.id || !$('#ytPlayer')) return;
+  const firstUndone = Math.max(0, c.videos.findIndex(v => !c.done[v]));
+  const vars = { rel: 0, modestbranding: 1, playsinline: 1, origin: location.origin !== 'null' ? location.origin : undefined };
+  const opts = c.kind === 'playlist'
+    ? { playerVars: { ...vars, listType: 'playlist', list: c.ref, index: firstUndone } }
+    : { videoId: c.ref, playerVars: vars };
+  campPlayer.campId = c.id;
+  campPlayer.player = new YT.Player('ytPlayer', {
+    ...opts, width: '100%', height: '100%',
+    events: {
+      onReady: () => { $('#ytFallback')?.remove(); syncPlaylist(c); },
+      onStateChange: e => onCampState(c, e.data),
+      onError: () => toast('⚠️ Bu video oynatılamıyor (gizli veya kaldırılmış olabilir)'),
+    },
+  });
+}
+// Oynatıcıdan video listesini alıp kayda geçir, başlıkları getir
+function syncPlaylist(c) {
+  const p = campPlayer.player;
+  if (!p) return;
+  const ids = c.kind === 'playlist' ? (p.getPlaylist && p.getPlaylist()) : [c.ref];
+  if (!ids || !ids.length) { setTimeout(() => campPlayer.player === p && syncPlaylist(c), 800); return; }
+  if (ids.join() !== c.videos.join()) { c.videos = ids; save(); }
+  renderCampParts(c);
+  fetchTitles(c);
+}
+async function fetchTitles(c) {
+  const missing = c.videos.filter(v => !c.titles[v]);
+  for (let i = 0; i < missing.length; i += 6) {
+    const batch = missing.slice(i, i + 6);
+    const res = await Promise.all(batch.map(v =>
+      fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent('https://www.youtube.com/watch?v=' + v)}`)
+        .then(r => (r.ok ? r.json() : null)).catch(() => null)));
+    if (res.every(r => !r)) break; // tarayıcı izin vermiyorsa denemeyi bırak
+    res.forEach((r, j) => { if (r && r.title) c.titles[batch[j]] = r.title; });
+    save();
+    if (campPlayer.campId === c.id) renderCampParts(c);
+  }
+}
+function onCampState(c, s) {
+  const p = campPlayer.player;
+  if (!p) return;
+  if (s === 1 || s === 0) {
+    const idx = c.kind === 'playlist' ? p.getPlaylistIndex() : 0;
+    if (idx !== campPlayer.index) { campPlayer.index = idx; renderCampParts(c); }
+    // Başlık oynatıcıdan da alınabilir
+    const vd = p.getVideoData && p.getVideoData();
+    const vid = c.videos[idx];
+    if (vd && vd.title && vid && !c.titles[vid]) { c.titles[vid] = vd.title; save(); renderCampParts(c); }
+  }
+  if (s === 0) { // video bitti
+    const idx = campPlayer.index;
+    const vid = c.videos[idx];
+    if (vid && !c.done[vid]) {
+      markCampVideo(c, idx, true, Math.round((p.getDuration() || 0) / 60));
+    }
+  }
+}
+function markCampVideo(c, idx, value, minutes = 0) {
+  const vid = c.videos[idx];
+  if (!vid) return;
+  if (value) {
+    c.done[vid] = dateStr();
+    if (c.logTime && minutes >= 1 && !campPlayer.logged[vid]) {
+      campPlayer.logged[vid] = true;
+      state.sessions.push({ id: uid(), date: dateStr(), subject: c.subject, minutes });
+    }
+    const st = campStats(c);
+    if (st.total && !st.remaining) toast('🎉 Tebrikler, kampı bitirdin!');
+    else if (st.doneToday === c.perDay) toast('🎯 Bugünkü kamp hedefini tamamladın!');
+    else toast(`✅ ${idx + 1}. video izlendi`);
+  } else {
+    delete c.done[vid];
+  }
+  save();
+  renderCampParts(c);
+}
+
 /* =========================================================
    AYARLAR
    ========================================================= */
@@ -946,6 +1342,7 @@ VIEWS.settings.after = () => {
       if (!confirm('Mevcut verilerin yedekteki verilerle değiştirilecek. Devam edilsin mi?')) return;
       localStorage.setItem(STORE_KEY, JSON.stringify(data));
       state = load();
+      ensureCamps();
       applyTheme();
       toast('✅ Yedek yüklendi');
       render();
@@ -987,7 +1384,7 @@ document.addEventListener('click', e => {
     return;
   }
   if (d.more !== undefined) {
-    const items = [['questions', '✏️', 'Sorular'], ['plan', '📅', 'Program'], ['mistakes', '❌', 'Yanlış Defteri'], ['settings', '⚙️', 'Ayarlar']];
+    const items = [['exams', '📝', 'Denemeler'], ['questions', '✏️', 'Sorular'], ['plan', '📅', 'Program'], ['mistakes', '❌', 'Yanlış Defteri'], ['score', '🧮', 'Puan Hesapla'], ['settings', '⚙️', 'Ayarlar']];
     openModal(`<h3>Diğer bölümler</h3><div class="more-grid">${items.map(([v, i, l]) =>
       `<a href="#${v}" data-close-link><span class="ico">${i}</span>${l}</a>`).join('')}</div>`);
     return;
@@ -1046,6 +1443,17 @@ document.addEventListener('click', e => {
     save(); return render();
   }
 
+  if (d.campNew !== undefined) return campFormModal(null);
+  if (d.campEdit) return campFormModal(campById(d.campEdit));
+  if (d.campDelete) {
+    if (!confirm('Bu kamp ve ilerlemesi silinsin mi?')) return;
+    state.camps = state.camps.filter(c => c.id !== d.campDelete);
+    save(); closeModal(); location.hash = '#camps'; return;
+  }
+
+  if (d.calcType) { state.calc.type = d.calcType; save(); return renderKeepScroll(); }
+  if (d.calcFill !== undefined) return fillCalcFromExams();
+
   if (d.examChart) { examChartType = d.examChart; return render(); }
   if (d.examDetail) return examDetail(d.examDetail);
   if (d.delExam) {
@@ -1090,7 +1498,7 @@ document.addEventListener('click', e => {
     if (!confirm('TÜM verilerin silinecek. Emin misin?')) return;
     if (!confirm('Bu işlem geri alınamaz. Son kez onaylıyor musun?')) return;
     state = structuredClone(DEFAULT_STATE);
-    save(); applyTheme(); render(); askField();
+    ensureCamps(); save(); applyTheme(); render(); askField();
     return;
   }
   if (d.notifyPerm !== undefined) {
@@ -1115,6 +1523,10 @@ document.addEventListener('change', e => {
   }
   if (e.target.id === 'examType') { examFormType = e.target.value; render(); }
   if (e.target.id === 'timerSubject') timer.subject = e.target.value;
+  if (d.campCheck !== undefined) {
+    const c = campById(viewParam);
+    if (c) markCampVideo(c, Number(d.campCheck), e.target.checked);
+  }
 });
 
 document.addEventListener('submit', async e => {
@@ -1168,6 +1580,22 @@ document.addEventListener('submit', async e => {
     save(); toast('✅ Yanlış eklendi'); render();
   }
 
+  if (f.id === 'campForm') {
+    const perDay = Math.max(1, int('perDay') || 1);
+    const logTime = f.elements.logTime.checked;
+    if (f.dataset.id) {
+      const c = campById(f.dataset.id);
+      Object.assign(c, { name: v('name').trim() || c.name, subject: v('subject'), perDay, logTime });
+      save(); closeModal(); render(); toast('✅ Kamp güncellendi');
+    } else {
+      const c = newCamp(v('name').trim(), v('subject'), v('link'), perDay);
+      if (!c) return toast('Geçerli bir YouTube bağlantısı gir');
+      c.logTime = logTime;
+      state.camps.push(c);
+      save(); closeModal(); location.hash = `#camp/${c.id}`;
+    }
+  }
+
   if (f.id === 'settingsForm') {
     const s = state.settings;
     const oldField = s.field;
@@ -1185,6 +1613,18 @@ document.addEventListener('submit', async e => {
   }
 });
 
+// Kamp listesinde videoya dokununca oynat
+document.addEventListener('click', e => {
+  const row = e.target.closest('[data-video-idx]');
+  if (!row || e.target.matches('input')) return;
+  const p = campPlayer.player;
+  const c = campById(viewParam);
+  if (!p || !c || !p.playVideoAt) return;
+  const idx = Number(row.dataset.videoIdx);
+  if (c.kind === 'playlist') p.playVideoAt(idx); else p.playVideo();
+  $('.yt-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
 // "Daha" menüsünde aynı sayfaya dokunulursa da menüyü kapat
 document.addEventListener('click', e => { if (e.target.closest('[data-close-link]')) closeModal(); });
 
@@ -1199,6 +1639,10 @@ function askField() {
       `<button data-pick-field="${k}"><span>${FIELD_ICONS[k]}</span>${f.name}</button>`).join('')}</div>`);
 }
 
+function ensureCamps() {
+  if (!state.camps) { state.camps = SEED_CAMPS.map(c => newCamp(c.name, c.subject, c.link)).filter(Boolean); save(); }
+}
+ensureCamps();
 applyTheme();
 route();
 if (!state.settings.field) askField();
