@@ -24,6 +24,13 @@ const DEFAULT_STATE = {
   mistakes: [],    // {id, date, subject, topic, note, img, solved}
   calc: { type: null, nets: {}, diploma: '', placed: false }, // puan hesaplama girdileri
   camps: null,     // YouTube kampları (ilk açılışta hazır kamplarla doldurulur)
+  cards: [],       // bilgi kartları {id, subject, front, back, box, due, created}
+  cardLog: {},     // tarih -> tekrar edilen kart sayısı
+  examSession: null, // süren deneme modu
+  target: {},      // hedef bölüm {name, type, score, rank}
+  reminders: { enabled: true, time: '20:00', pomodoro: true },
+  sound: { type: 'rain', volume: 0.5, auto: false },
+  lastReportWeek: '',
 };
 
 let state = load();
@@ -39,6 +46,9 @@ function load() {
       plan: s.plan && Array.isArray(s.plan.days) ? s.plan : structuredClone(DEFAULT_STATE.plan),
       calc: { ...DEFAULT_STATE.calc, ...(s.calc || {}) },
       camps: Array.isArray(s.camps) ? s.camps : null,
+      cards: Array.isArray(s.cards) ? s.cards : [],
+      reminders: { ...DEFAULT_STATE.reminders, ...(s.reminders || {}) },
+      sound: { ...DEFAULT_STATE.sound, ...(s.sound || {}) },
     };
   } catch (e) {
     return structuredClone(DEFAULT_STATE);
@@ -361,6 +371,12 @@ VIEWS.home = () => {
       <div class="lbl">Son net${lastExam ? ` · ${esc(EXAM_LABELS[lastExam.type])}` : ''}</div></div></div>
   </div>
 
+  ${state.examSession && state.examSession.phase === 'running' ? `<a href="#exammode" class="card list-item" style="text-decoration:none;color:inherit;border-color:var(--primary)">
+    <div class="ic violet" style="width:40px;height:40px;border-radius:12px;display:grid;place-items:center">⏱️</div>
+    <div class="grow"><b>Süren bir denemen var</b><div class="sub">Devam etmek için dokun</div></div><span class="muted">→</span></a>` : ''}
+
+  ${targetCardHtml()}
+
   <div class="grid grid-2">
     <div class="card">
       <div class="card-head"><h3>🎯 Bugünkü Hedefler</h3><a class="btn sm" href="#timer">▶ Çalışmaya başla</a></div>
@@ -382,6 +398,9 @@ VIEWS.home = () => {
         <span><i style="background:var(--s2)"></i>Bitti</span>
         <span><i style="background:var(--s1)"></i>Çalışılıyor</span>
       </div>
+      ${dueCards().length ? `<a href="#cards" class="list-item" style="text-decoration:none;color:inherit;margin-top:10px;border-top:1px solid var(--border)">
+        <div class="ic orange" style="width:34px;height:34px;border-radius:10px;display:grid;place-items:center">🃏</div>
+        <div class="grow"><b>${dueCards().length} kart</b><div class="sub">bugün tekrar edilmeyi bekliyor</div></div><span class="muted">→</span></a>` : ''}
       ${openMistakes ? `<a href="#mistakes" class="list-item" style="text-decoration:none;color:inherit;margin-top:10px;border-top:1px solid var(--border)">
         <div class="ic red" style="width:34px;height:34px;border-radius:10px;display:grid;place-items:center">❌</div>
         <div class="grow"><b>${openMistakes} yanlış soru</b><div class="sub">tekrar edilmeyi bekliyor</div></div><span class="muted">→</span></a>` : ''}
@@ -390,7 +409,8 @@ VIEWS.home = () => {
 
   <div class="grid grid-2">
     <div class="card">
-      <div class="card-head"><h3>⏱️ Son 7 Gün Çalışma</h3><span class="muted small">Toplam ${fmtMin(last7(minutesOn).reduce((a, d) => a + d.value, 0))}</span></div>
+      <div class="card-head"><h3>⏱️ Son 7 Gün Çalışma</h3><a class="btn sm secondary" href="#stats">📊 Rapor</a></div>
+      <div class="muted small" style="margin:-6px 0 6px">Toplam ${fmtMin(last7(minutesOn).reduce((a, d) => a + d.value, 0))}</div>
       ${barChart(last7(minutesOn).map(d => ({ ...d, display: d.value >= 60 ? (d.value / 60).toFixed(1) + 'sa' : d.value + 'dk' })))}
     </div>
     <div class="card">
@@ -485,6 +505,7 @@ function logSession(minutes, subject) {
   if (minutes < 1) return;
   state.sessions.push({ id: uid(), date: dateStr(), subject: subject || 'other', minutes: Math.round(minutes) });
   save();
+  scheduleReminders();
 }
 function beep() {
   try {
@@ -513,6 +534,7 @@ function timerFinished() {
     logSession(state.settings.pomoWork, timer.subject);
     timer.cycles++;
     timer.mode = 'break';
+    focusAuto(false);
     notify('🎉 Çalışma bitti! Mola zamanı.');
   } else {
     timer.mode = 'work';
@@ -580,6 +602,7 @@ VIEWS.timer = () => {
     </div>
 
     <div>
+      ${soundCardHtml()}
       <div class="card">
         <h3>➕ Elle Çalışma Ekle</h3>
         <form id="manualSession">
@@ -632,7 +655,8 @@ VIEWS.questions = () => {
     <h3>➕ Soru Ekle</h3>
     <form id="questionForm">
       <div class="form-row">
-        <div style="flex:2 1 200px"><label>Ders</label><select name="subject">${subjectOptions(VIEWS.questions.last)}</select></div>
+        <div style="flex:2 1 200px"><label>Ders</label><select name="subject" id="qSubject">${subjectOptions(VIEWS.questions.last)}</select></div>
+        <div style="flex:2 1 200px"><label>Konu (isteğe bağlı)</label><select name="topic" id="qTopic">${topicOptions(VIEWS.questions.last || activeSubjects()[0].id)}</select></div>
         <div><label>Tarih</label><input name="date" type="date" value="${today}" required></div>
       </div>
       <div class="form-row">
@@ -665,7 +689,7 @@ VIEWS.questions = () => {
     ${recent.length ? recent.map(q => `<div class="list-item">
       <span class="dot" style="--c:${subjectColor(q.subject)}"></span>
       <div class="grow"><b>${esc(subjectLabel(q.subject))}</b>
-        <div class="sub">${fmtDate(q.date)} · <span style="color:var(--ok)">${q.d}D</span> · <span style="color:var(--bad)">${q.y}Y</span> · ${q.b}B</div></div>
+        <div class="sub">${q.topic ? esc(q.topic) + ' · ' : ''}${fmtDate(q.date)} · <span style="color:var(--ok)">${q.d}D</span> · <span style="color:var(--bad)">${q.y}Y</span> · ${q.b}B</div></div>
       <span class="pill ok">${fmtNet(net(q.d, q.y))} net</span>
       <button class="btn ghost" data-del-question="${q.id}" title="Sil">🗑</button></div>`).join('')
     : emptyBox('✏️', 'Henüz soru kaydı yok.')}
@@ -691,7 +715,8 @@ VIEWS.exams = () => {
   const avg = chartData.length ? chartData.reduce((a, d) => a + d.value, 0) / chartData.length : null;
 
   return `
-  ${pageHead('📝 Deneme Takibi', 'Netler otomatik hesaplanır: 4 yanlış 1 doğruyu götürür')}
+  ${pageHead('📝 Deneme Takibi', 'Netler otomatik hesaplanır: 4 yanlış 1 doğruyu götürür',
+    `<a class="btn" href="#exammode">⏱️ ${state.examSession ? 'Süren denemeye dön' : 'Deneme modu'}</a>`)}
   <div class="card">
     <h3>➕ Yeni Deneme</h3>
     <form id="examForm">
@@ -765,7 +790,7 @@ function examDetail(id) {
     <table><tr><th>Bölüm</th><th>D</th><th>Y</th><th>B</th><th>Net</th></tr>
     ${EXAM_SECTIONS[e.type].map(s => {
       const v = e.sections[s.key] || { d: 0, y: 0 };
-      return `<tr><td>${s.name}</td><td>${v.d}</td><td>${v.y}</td><td>${s.max - v.d - v.y}</td><td>${fmtNet(net(v.d, v.y))}</td></tr>`;
+      return `<tr><td>${s.name}${v.wrong && v.wrong.length ? `<div class="muted small">Yanlış: ${v.wrong.join(', ')}</div>` : ''}</td><td>${v.d}</td><td>${v.y}</td><td>${s.max - v.d - v.y}</td><td>${fmtNet(net(v.d, v.y))}</td></tr>`;
     }).join('')}
     <tr><th>Toplam</th><th></th><th></th><th></th><th>${fmtNet(examTotalNet(e))}</th></tr></table>
     ${e.type === 'TYT' ? `<p class="small" style="margin:12px 0 0">🧮 Tahmini TYT ham puanı: <b>${fmtPuan(100 + EXAM_SECTIONS.TYT.reduce((a, s) =>
@@ -983,6 +1008,8 @@ VIEWS.score = () => {
         <div class="hero-top"><span>Tahmini yerleştirme puanı</span><span>${esc(p.name)}</span></div>
         <div style="font-size:2.6rem;font-weight:800;margin:8px 0 2px">${fmtPuan(r.aytPlace)}</div>
         <div style="opacity:.9">Ham puan ${fmtPuan(r.aytRaw)}${r.obpAdd ? ` + OBP katkısı ${fmtPuan(r.obpAdd)}` : ''}</div>
+        ${state.target && state.target.score && state.target.type === c.type ? `<div style="margin-top:10px;font-weight:700">🎯 ${esc(state.target.name)}: ${
+          Number(state.target.score) > r.aytPlace ? `${fmtPuan(Number(state.target.score) - r.aytPlace)} puan kaldı` : 'hedefin üstündesin 🎉'}</div>` : ''}
       </div>
       <div class="grid" style="grid-template-columns:1fr 1fr">
         <div class="card stat center"><div class="lbl">TYT ham puan</div><div class="val">${fmtPuan(r.tytRaw)}</div></div>
@@ -1275,6 +1302,7 @@ function markCampVideo(c, idx, value, minutes = 0) {
     if (c.logTime && minutes >= 1 && !campPlayer.logged[vid]) {
       campPlayer.logged[vid] = true;
       state.sessions.push({ id: uid(), date: dateStr(), subject: c.subject, minutes });
+      scheduleReminders();
     }
     const st = campStats(c);
     if (st.total && !st.remaining) toast('🎉 Tebrikler, kampı bitirdin!');
@@ -1320,6 +1348,9 @@ VIEWS.settings = () => {
         <button type="button" class="btn secondary" data-notify-perm>🔔 Bildirimlere izin ver</button></div>
     </form>
   </div>
+
+  ${targetSettingsHtml()}
+  ${reminderSettingsHtml()}
 
   <div class="card">
     <h3>💾 Yedekleme</h3>
@@ -1384,7 +1415,7 @@ document.addEventListener('click', e => {
     return;
   }
   if (d.more !== undefined) {
-    const items = [['exams', '📝', 'Denemeler'], ['questions', '✏️', 'Sorular'], ['plan', '📅', 'Program'], ['mistakes', '❌', 'Yanlış Defteri'], ['score', '🧮', 'Puan Hesapla'], ['settings', '⚙️', 'Ayarlar']];
+    const items = [['exams', '📝', 'Denemeler'], ['questions', '✏️', 'Sorular'], ['plan', '📅', 'Program'], ['mistakes', '❌', 'Yanlış Defteri'], ['cards', '🃏', 'Bilgi Kartları'], ['stats', '📊', 'İstatistikler'], ['score', '🧮', 'Puan Hesapla'], ['settings', '⚙️', 'Ayarlar']];
     openModal(`<h3>Diğer bölümler</h3><div class="more-grid">${items.map(([v, i, l]) =>
       `<a href="#${v}" data-close-link><span class="ico">${i}</span>${l}</a>`).join('')}</div>`);
     return;
@@ -1430,6 +1461,8 @@ document.addEventListener('click', e => {
       if (timer.mode === 'work') timer.cycles++;
       timer.mode = timer.mode === 'work' ? 'break' : 'work';
     }
+    focusAuto(timer.running && timer.mode === 'work');
+    scheduleTimerNotification();
     return render();
   }
   if (d.delSession) {
@@ -1539,11 +1572,11 @@ document.addEventListener('submit', async e => {
     const m = int('minutes');
     if (!m) return toast('Süre gir');
     state.sessions.push({ id: uid(), date: v('date'), subject: v('subject'), minutes: m });
-    save(); toast('✅ Çalışma eklendi'); render();
+    save(); scheduleReminders(); toast('✅ Çalışma eklendi'); render();
   }
 
   if (f.id === 'questionForm') {
-    const q = { id: uid(), date: v('date'), subject: v('subject'), d: int('d'), y: int('y'), b: int('b') };
+    const q = { id: uid(), date: v('date'), subject: v('subject'), topic: v('topic') || '', d: int('d'), y: int('y'), b: int('b') };
     if (!q.d && !q.y && !q.b) return toast('Soru sayısı gir');
     VIEWS.questions.last = q.subject;
     state.questions.push(q);
@@ -1642,11 +1675,3 @@ function askField() {
 function ensureCamps() {
   if (!state.camps) { state.camps = SEED_CAMPS.map(c => newCamp(c.name, c.subject, c.link)).filter(Boolean); save(); }
 }
-ensureCamps();
-applyTheme();
-route();
-// Çevrimdışı kullanım ve "ana ekrana ekle" için
-if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
-}
-if (!state.settings.field) askField();
