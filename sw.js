@@ -1,6 +1,6 @@
 // Çevrimdışı çalışma: önce ağdan dene (güncel sürüm), olmazsa önbellekten aç
-const CACHE = 'yks-v1';
-const SHELL = ['./', './index.html', './css/style.css', './js/data.js', './js/app.js', './manifest.webmanifest',
+const CACHE = 'yks-v2';
+const SHELL = ['./', './index.html', './css/style.css', './js/data.js', './js/app.js', './js/features.js', './js/main.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/favicon.png'];
 
 self.addEventListener('install', e => {
